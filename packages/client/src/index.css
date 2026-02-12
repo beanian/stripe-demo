@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-axa-dark antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white border border-axa-grey-200 rounded-axa shadow-axa;
+  }
+
+  .card-elevated {
+    @apply bg-white border border-axa-grey-200 rounded-axa shadow-axa-md;
+  }
+
+  .step-connector {
+    @apply absolute left-5 top-12 w-0.5 bg-axa-grey-200;
+    height: calc(100% - 2.5rem);
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.35s ease-out both;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out both;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.4s ease-out both;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ═══ Path C: Custom Experience ═══ */
+
+/* Subtle dot-grid background pattern */
+.custom-bg-pattern {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.03) 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+/* Glassmorphism card */
+.custom-glass {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* Step enter animation */
+.custom-step-enter {
+  animation: customStepEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes customStepEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Schedule card states */
+.custom-card-idle {
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+}
+
+.custom-card-selected {
+  background: rgba(0, 0, 143, 0.03);
+  border: 1px solid rgba(0, 0, 143, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 143, 0.08),
+    0 8px 32px rgba(0, 0, 143, 0.06);
+}
+
+/* AXA blue CTA button */
+.custom-btn-primary {
+  background: #00008F;
+  color: #FFFFFF;
+}
+
+.custom-btn-primary:hover:not(:disabled) {
+  background: #0000A8;
+}
+
+/* Submit button glow effect */
+.custom-btn-glow {
+  box-shadow: 0 4px 24px rgba(0, 0, 143, 0.15);
+}
+
+.custom-btn-glow:hover:not(:disabled) {
+  box-shadow: 0 4px 32px rgba(0, 0, 143, 0.25);
+}
+
+/* Active step glow ring */
+.custom-glow-ring {
+  box-shadow: 0 0 0 4px rgba(0, 0, 143, 0.1);
+}
+
+/* Pulsing ring for success checkmark */
+.custom-pulse-ring {
+  animation: customPulseRing 2s ease-out infinite;
+}
+
+@keyframes customPulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Custom loading spinner */
+.custom-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid #E5E7EB;
+  border-top-color: #00008F;
+  animation: customSpin 0.8s linear infinite;
+}
+
+@keyframes customSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Custom scrollbar for instalment timeline */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
