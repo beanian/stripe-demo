@@ -1,10 +1,9 @@
 export interface IntegrationSpec {
   id: string;
-  number: number;
   title: string;
   uiAnchor: string;
   blurb: string;
-  direction: 'outbound' | 'inbound-webhook' | 'browser-direct';
+  direction: 'outbound' | 'inbound-webhook' | 'browser-direct' | 'ui-boundary';
   endpoint: { method: string; path: string };
   trigger: string;
   requestSample?: string;
@@ -18,7 +17,6 @@ export interface IntegrationSpec {
 export const INTEGRATION_SPECS: IntegrationSpec[] = [
   {
     id: 'sync-customer',
-    number: 1,
     title: 'Sync policyholder to Stripe Customer',
     uiAnchor: 'Quote summary / customer card',
     blurb: 'Before saved cards are possible, each AXA policyholder must have a corresponding Stripe Customer record.',
@@ -54,7 +52,6 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   },
   {
     id: 'payment-intent',
-    number: 2,
     title: 'Create PaymentIntent linked to the customer',
     uiAnchor: 'Schedule selector / amount due',
     blurb:
@@ -87,7 +84,6 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   },
   {
     id: 'customer-session',
-    number: 3,
     title: 'Open a short-lived CustomerSession',
     uiAnchor: 'Card payment form (the saved-card list)',
     blurb:
@@ -122,7 +118,6 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   },
   {
     id: 'list-saved-pms',
-    number: 4,
     title: 'Stripe.js fetches the saved cards',
     uiAnchor: 'Saved-card list inside the PaymentElement',
     blurb:
@@ -145,7 +140,6 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   },
   {
     id: 'set-default-card',
-    number: 5,
     title: 'Set a saved card as default → sync to BillingCenter',
     uiAnchor: 'My AXA self-serve "Manage saved cards" screen (not on this page)',
     blurb:
@@ -179,7 +173,6 @@ PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
   },
   {
     id: 'webhook-payment-success',
-    number: 6,
     title: 'Webhook: payment succeeded',
     uiAnchor: 'Pay button / confirmation',
     blurb:
@@ -204,8 +197,149 @@ PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
       'Verify signature, dedupe by event ID, then drive two downstream calls: (a) Guidewire PolicyCenter — bind / issue the policy referenced by metadata.quoteId, (b) Guidewire BillingCenter — record the payment received against the BC invoice AND upsert the PaymentMethod ID used (with brand / last4 / expiry) as a known payment instrument on the account. This is THE moment a card becomes known to BC — saving a card without paying does not. BC also owns instalment scheduling for PBI from this point on, and a successful instalment charge here re-asserts the PM details (catching Stripe card-auto-updater changes).',
     axaSystems: ['Guidewire PolicyCenter (PAS)', 'Guidewire BillingCenter'],
   },
+
+  /* ─────────────────────────────────────────────────────
+     MY AXA WALLET — self-serve screen
+     A distinct set of integration points from the checkout flows.
+     No PaymentIntents, no policy issuance, no payment webhooks —
+     just wallet management against an existing Stripe customer.
+     ───────────────────────────────────────────────────── */
+  {
+    id: 'wallet-resolve-customer',
+    title: 'Resolve policyholder to Stripe Customer',
+    uiAnchor: 'Account header at the top of the wallet page',
+    blurb:
+      'Every action on this screen — list, add, default, remove — operates against a Stripe customer ID. MuleSoft must resolve the signed-in AXA policyholder to that ID before the page can render anything.',
+    direction: 'outbound',
+    endpoint: { method: 'GET', path: 'Internal: AXA-customer-id → Stripe cus_xxx mapping' },
+    trigger: 'On page load, before any wallet API call.',
+    muleSoftRole:
+      'Look up the cus_xxx for the authenticated AXA policyholder from the mapping persisted at signup (see [#1 on checkout pages]). Cache for the duration of the session. If no mapping exists, lazily create the Stripe customer first.',
+    axaSystems: ['Identity / SSO', 'API gateway', 'CRM (mapping store)'],
+    notes:
+      'Same mapping as the checkout flows use, but accessed in a self-serve auth context (the user has signed in, not just received a quote link).',
+  },
+  {
+    id: 'wallet-list',
+    title: 'Read the saved-cards list',
+    uiAnchor: 'The "Your wallet" card list rendered above',
+    blurb:
+      'The card list you see is CUSTOM AXA UI — not a Stripe-provided Element. The data comes from this single Stripe API call. Stripe owns the wallet; AXA owns the UI rendering. This split matters because the wallet view needs AXA actions (set default, remove with BC awareness) that no Stripe Element provides.',
+    direction: 'outbound',
+    endpoint: { method: 'GET', path: '/v1/customers/{id}/payment_methods?type=card  +  GET /v1/customers/{id}' },
+    trigger: 'Page load and after every mutation (set-default / detach / add).',
+    responseSample: `// /v1/customers/{id}/payment_methods?type=card
+{
+  "data": [
+    { "id": "pm_1Nx…", "card": { "brand": "visa", "last4": "4242", "exp_month": 8, "exp_year": 2029 } },
+    { "id": "pm_1Ny…", "card": { "brand": "mastercard", "last4": "4444", "exp_month": 12, "exp_year": 2028 } },
+    { "id": "pm_1Nz…", "card": { "brand": "amex", "last4": "8431", "exp_month": 3, "exp_year": 2030 } }
+  ]
+}
+
+// /v1/customers/{id} — used to know which one is default
+{
+  "id": "cus_Ua45hy5HUFvTKo",
+  "invoice_settings": { "default_payment_method": "pm_1Nx…" }
+}`,
+    muleSoftRole:
+      'Proxy a GET endpoint that returns { cards: [...], defaultPaymentMethodId } shaped for the AXA UI. Two Stripe calls in parallel under the hood. Cacheable per-session for a few seconds but not longer — must reflect the latest mutations.',
+    axaSystems: ['My AXA self-serve', 'API gateway'],
+    notes:
+      'Architectural boundary: above this point the UI is custom React. Below this point everything is Stripe. The PaymentElement (in #4) is the ONLY Stripe-rendered surface on this page.',
+  },
+  {
+    id: 'wallet-add-card',
+    title: 'Add a new card (SetupIntent + PaymentElement)',
+    uiAnchor: 'The "Add a new card" expanding panel — the ONLY Stripe Elements surface on this page',
+    blurb:
+      'A SetupIntent attaches a new card to the customer without charging it. The form is rendered by Stripe\'s PaymentElement, so PCI scope, 3DS, brand validation, accessibility and localisation all stay inside Stripe. Critically, this flow does NOT pass a CustomerSession — that would surface the user\'s already-saved cards as alternatives, and the explicit user intent here is to add a new one. NO BC sync at this point — the card joins the Stripe wallet but does not become known to BC until the user either pays with it (#6 on checkout flow) or sets it as default (#4 below).',
+    direction: 'outbound',
+    endpoint: { method: 'POST', path: '/v1/setup_intents  →  browser stripe.confirmSetup()' },
+    trigger: 'User clicks "Add a new card", confirms via PaymentElement, hits "Save card to wallet".',
+    requestSample: `// MuleSoft creates the SetupIntent
+POST /v1/setup_intents
+{
+  "customer": "cus_Ua45hy5HUFvTKo",
+  "payment_method_types": ["card"],
+  "usage": "off_session"
+}
+
+// Browser then confirms it via Stripe.js
+stripe.confirmSetup({
+  elements,
+  confirmParams: { return_url: window.location.href },
+  redirect: 'if_required'
+})`,
+    responseSample: `{
+  "id": "seti_1Pq…",
+  "client_secret": "seti_1Pq…_secret_…",
+  "status": "succeeded",
+  "payment_method": "pm_1NewCard…",
+  "customer": "cus_Ua45hy5HUFvTKo"
+}`,
+    muleSoftRole:
+      'Mint the SetupIntent on demand, return only the client_secret to the browser. The actual confirmation happens browser-direct via Stripe.js — MuleSoft is not on the confirm path.',
+    axaSystems: ['My AXA self-serve', 'API gateway'],
+    notes:
+      'Adding a card is deliberately invisible to BC. This is the correct behaviour — BC should only track cards that have been used or explicitly chosen as default. Saving a card alone is not a billing event.',
+  },
+  {
+    id: 'wallet-set-default',
+    title: 'Set as default → sync to BillingCenter',
+    uiAnchor: '"Set as default" button on each non-default card',
+    blurb:
+      'This is the moment a wallet card becomes known to BC. Synchronous MuleSoft orchestration: update Stripe default, then PATCH BC. Both writes must succeed or both must revert — BC and Stripe defaults are required to stay aligned because BC initiates instalment charges.',
+    direction: 'outbound',
+    endpoint: { method: 'POST', path: '/v1/customers/{id}  +  BC payment-instrument PATCH' },
+    trigger: 'User clicks "Set as default" on a saved card.',
+    requestSample: `// Step 1 — MuleSoft updates Stripe
+POST /v1/customers/cus_Ua45hy5HUFvTKo
+{ "invoice_settings": { "default_payment_method": "pm_1NxYz…" } }
+
+// Step 2 — MuleSoft updates Guidewire BC
+PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
+{
+  "stripePaymentMethodId": "pm_1NxYz…",
+  "brand": "visa", "last4": "4242", "expMonth": 8, "expYear": 2029
+}`,
+    muleSoftRole:
+      'Two writes in one user action. If BC fails after Stripe succeeds, revert the Stripe default (or queue compensation). Treat this as a saga, not a fire-and-forget pair.',
+    axaSystems: ['My AXA self-serve', 'Guidewire BillingCenter'],
+    notes:
+      'The only path from a saved card to a BC payment instrument that does NOT involve an actual payment. The other path is #6 on the checkout flow (payment_intent.succeeded).',
+  },
+  {
+    id: 'wallet-detach',
+    title: 'Remove a card from the wallet',
+    uiAnchor: 'Trash icon on each non-default card',
+    blurb:
+      'Removes the card from Stripe entirely. The Stripe call is simple; the orchestration matters when the removed card is one BC knows about — BC must be told to clear or replace the payment instrument or it will try to charge a non-existent PaymentMethod on the next instalment.',
+    direction: 'outbound',
+    endpoint: { method: 'POST', path: '/v1/payment_methods/{id}/detach  +  BC payment-instrument removal' },
+    trigger: 'User clicks the trash icon and confirms.',
+    requestSample: `// Stripe call
+POST /v1/payment_methods/pm_1NxYz…/detach
+
+// If this PM existed in BC, follow up
+DELETE /billing/v1/accounts/{axa_account_id}/payment-instruments/pm_1NxYz…`,
+    muleSoftRole:
+      'Detach from Stripe. Check whether BC held this PM (it would only if it had been used to pay or set as default). If yes, remove it from BC. The UI gates removing the current default so this is rare in practice.',
+    axaSystems: ['My AXA self-serve', 'Guidewire BillingCenter (only if BC knew about this card)'],
+    notes:
+      'Detach is permanent on Stripe — the PM ID cannot be reused. The card cannot be re-added without the user re-entering details (no Stripe-side undo).',
+  },
 ];
 
 export function findSpec(id: string): IntegrationSpec | undefined {
   return INTEGRATION_SPECS.find((s) => s.id === id);
 }
+
+/* Ordered spec sets per page — drives pin numbering and drawer prev/next. */
+export const WALLET_SPEC_IDS: readonly string[] = [
+  'wallet-resolve-customer',
+  'wallet-list',
+  'wallet-add-card',
+  'wallet-set-default',
+  'wallet-detach',
+];

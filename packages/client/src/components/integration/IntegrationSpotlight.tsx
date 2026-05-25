@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Network, X, ArrowRight, Webhook, Cloud, Globe, Workflow } from 'lucide-react';
+import { Network, X, ArrowRight, Webhook, Cloud, Globe, Workflow, Layers } from 'lucide-react';
 import { INTEGRATION_SPECS, findSpec, type IntegrationSpec } from './integration-specs';
 
 interface SpotlightCtx {
@@ -7,6 +7,8 @@ interface SpotlightCtx {
   toggle: () => void;
   selectedId: string | null;
   select: (id: string | null) => void;
+  orderedIds: readonly string[];
+  numberFor: (id: string) => number | null;
 }
 
 const Ctx = createContext<SpotlightCtx | null>(null);
@@ -17,7 +19,19 @@ export function useSpotlight(): SpotlightCtx {
   return v;
 }
 
-export function IntegrationSpotlightProvider({ children }: { children: ReactNode }) {
+interface ProviderProps {
+  children: ReactNode;
+  /** Ordered spec IDs for this page. Defaults to all INTEGRATION_SPECS in declaration order. */
+  specIds?: readonly string[];
+  /** Optional label shown on the floating toggle, e.g. "MuleSoft integrations" (default) or "Wallet integrations". */
+  toggleLabel?: string;
+}
+
+export function IntegrationSpotlightProvider({
+  children,
+  specIds,
+  toggleLabel = 'MuleSoft integrations',
+}: ProviderProps) {
   const [active, setActive] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -30,12 +44,28 @@ export function IntegrationSpotlightProvider({ children }: { children: ReactNode
 
   const select = useCallback((id: string | null) => setSelectedId(id), []);
 
-  const value = useMemo(() => ({ active, toggle, selectedId, select }), [active, toggle, selectedId, select]);
+  const orderedIds = useMemo<readonly string[]>(
+    () => specIds ?? INTEGRATION_SPECS.map((s) => s.id),
+    [specIds],
+  );
+
+  const numberFor = useCallback(
+    (id: string) => {
+      const i = orderedIds.indexOf(id);
+      return i === -1 ? null : i + 1;
+    },
+    [orderedIds],
+  );
+
+  const value = useMemo<SpotlightCtx>(
+    () => ({ active, toggle, selectedId, select, orderedIds, numberFor }),
+    [active, toggle, selectedId, select, orderedIds, numberFor],
+  );
 
   return (
     <Ctx.Provider value={value}>
       {children}
-      <SpotlightToggle />
+      <SpotlightToggle label={toggleLabel} />
       <SpotlightDrawer />
     </Ctx.Provider>
   );
@@ -60,10 +90,12 @@ const POSITION_CLASS: Record<NonNullable<AnchorProps['position']>, string> = {
 };
 
 export function IntegrationAnchor({ specId, children, className = '', position = 'top-right' }: AnchorProps) {
-  const { active, select, selectedId } = useSpotlight();
+  const { active, select, selectedId, numberFor } = useSpotlight();
   const spec = findSpec(specId);
+  const number = numberFor(specId);
 
-  if (!spec) return <>{children}</>;
+  // If the spec isn't in this page's working set, render children plain.
+  if (!spec || number === null) return <>{children}</>;
 
   const isSelected = selectedId === specId;
 
@@ -75,7 +107,7 @@ export function IntegrationAnchor({ specId, children, className = '', position =
           type="button"
           onClick={() => select(isSelected ? null : specId)}
           className={`absolute ${POSITION_CLASS[position]} z-30 group`}
-          aria-label={`Show integration #${spec.number}: ${spec.title}`}
+          aria-label={`Show integration #${number}: ${spec.title}`}
         >
           <span
             className={`
@@ -87,7 +119,7 @@ export function IntegrationAnchor({ specId, children, className = '', position =
                 : 'bg-white text-axa-blue border-2 border-axa-blue shadow-lg hover:scale-110'}
             `}
           >
-            {spec.number}
+            {number}
             <span className="absolute inset-0 rounded-full bg-axa-blue/40 animate-spotlight-ping pointer-events-none" />
           </span>
         </button>
@@ -100,8 +132,8 @@ export function IntegrationAnchor({ specId, children, className = '', position =
    FLOATING TOGGLE
    ───────────────────────────────────────────────────── */
 
-function SpotlightToggle() {
-  const { active, toggle } = useSpotlight();
+function SpotlightToggle({ label }: { label: string }) {
+  const { active, toggle, orderedIds } = useSpotlight();
 
   return (
     <button
@@ -118,10 +150,10 @@ function SpotlightToggle() {
       aria-pressed={active}
     >
       <Network size={16} />
-      {active ? 'Hide integrations' : 'Show MuleSoft integrations'}
+      {active ? `Hide ${label}` : `Show ${label}`}
       {!active && (
         <span className="ml-1 px-2 py-0.5 rounded-full bg-axa-blue/10 text-[10px] font-bold tracking-widest text-axa-blue">
-          {INTEGRATION_SPECS.length}
+          {orderedIds.length}
         </span>
       )}
     </button>
@@ -136,12 +168,14 @@ const DIRECTION_BADGE: Record<IntegrationSpec['direction'], { label: string; ico
   outbound: { label: 'MuleSoft → Stripe', icon: Cloud, cls: 'bg-blue-50 text-blue-700 border-blue-200' },
   'inbound-webhook': { label: 'Stripe → MuleSoft', icon: Webhook, cls: 'bg-purple-50 text-purple-700 border-purple-200' },
   'browser-direct': { label: 'Browser → Stripe', icon: Globe, cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  'ui-boundary': { label: 'UI architecture', icon: Layers, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
 };
 
 function SpotlightDrawer() {
-  const { active, selectedId, select } = useSpotlight();
+  const { active, selectedId, select, numberFor } = useSpotlight();
   const spec = selectedId ? findSpec(selectedId) : null;
-  const open = active && !!spec;
+  const number = selectedId ? numberFor(selectedId) : null;
+  const open = active && !!spec && number !== null;
 
   return (
     <>
@@ -161,13 +195,15 @@ function SpotlightDrawer() {
         `}
         aria-hidden={!open}
       >
-        {spec && <DrawerBody spec={spec} onClose={() => select(null)} />}
+        {spec && number !== null && (
+          <DrawerBody spec={spec} number={number} onClose={() => select(null)} />
+        )}
       </aside>
     </>
   );
 }
 
-function DrawerBody({ spec, onClose }: { spec: IntegrationSpec; onClose: () => void }) {
+function DrawerBody({ spec, number, onClose }: { spec: IntegrationSpec; number: number; onClose: () => void }) {
   const dir = DIRECTION_BADGE[spec.direction];
   const DirIcon = dir.icon;
 
@@ -177,7 +213,7 @@ function DrawerBody({ spec, onClose }: { spec: IntegrationSpec; onClose: () => v
       <div className="sticky top-0 z-10 bg-white border-b border-axa-grey-200 px-6 py-4 flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <span className="flex-shrink-0 w-9 h-9 rounded-full bg-axa-blue text-white font-bold text-sm flex items-center justify-center">
-            {spec.number}
+            {number}
           </span>
           <div>
             <p className="text-[10px] font-bold tracking-[0.15em] text-axa-grey-400 uppercase">Integration</p>
@@ -302,31 +338,33 @@ function CodeBlock({ children }: { children: ReactNode }) {
 }
 
 function DrawerNav({ currentId }: { currentId: string }) {
-  const { select } = useSpotlight();
-  const idx = INTEGRATION_SPECS.findIndex((s) => s.id === currentId);
-  const prev = idx > 0 ? INTEGRATION_SPECS[idx - 1] : null;
-  const next = idx < INTEGRATION_SPECS.length - 1 ? INTEGRATION_SPECS[idx + 1] : null;
+  const { select, orderedIds, numberFor } = useSpotlight();
+  const idx = orderedIds.indexOf(currentId);
+  const prevId = idx > 0 ? orderedIds[idx - 1] : null;
+  const nextId = idx >= 0 && idx < orderedIds.length - 1 ? orderedIds[idx + 1] : null;
+  const prev = prevId ? findSpec(prevId) : null;
+  const next = nextId ? findSpec(nextId) : null;
 
   return (
     <div className="sticky bottom-0 bg-white border-t border-axa-grey-200 px-6 py-3 flex items-center justify-between gap-2">
       <button
-        onClick={() => prev && select(prev.id)}
+        onClick={() => prevId && select(prevId)}
         disabled={!prev}
         className="flex-1 text-left px-3 py-2 rounded-lg hover:bg-axa-grey-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
         <p className="text-[9px] font-bold tracking-widest text-axa-grey-400 uppercase">Prev</p>
         <p className="text-xs font-semibold text-axa-grey-700 truncate">
-          {prev ? `${prev.number}. ${prev.title}` : '—'}
+          {prev && prevId ? `${numberFor(prevId)}. ${prev.title}` : '—'}
         </p>
       </button>
       <button
-        onClick={() => next && select(next.id)}
+        onClick={() => nextId && select(nextId)}
         disabled={!next}
         className="flex-1 text-right px-3 py-2 rounded-lg hover:bg-axa-grey-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
         <p className="text-[9px] font-bold tracking-widest text-axa-grey-400 uppercase">Next</p>
         <p className="text-xs font-semibold text-axa-grey-700 truncate">
-          {next ? `${next.number}. ${next.title}` : '—'}
+          {next && nextId ? `${numberFor(nextId)}. ${next.title}` : '—'}
         </p>
       </button>
     </div>

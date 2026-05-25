@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Layers, Palette, Sparkles, Columns } from 'lucide-react';
+import { Layers, Palette, Sparkles, Columns, Wallet, ArrowRight } from 'lucide-react';
 import { useQuote } from '../contexts/QuoteContext';
 import StepIndicator from '../components/shared/StepIndicator';
 import QuoteSummaryCard from '../components/shared/QuoteSummaryCard';
@@ -97,6 +97,35 @@ export default function QuotePage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Self-Serve section — distinct from checkout paths */}
+      <div className="mt-10">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="h-px flex-1 bg-axa-grey-200" />
+          <span className="text-[10px] font-bold tracking-[0.15em] text-axa-grey-400 uppercase">
+            Self-Serve · post-purchase
+          </span>
+          <div className="h-px flex-1 bg-axa-grey-200" />
+        </div>
+
+        <button
+          onClick={() => navigate(ROUTES.MYAXA_WALLET)}
+          className="card-elevated p-5 w-full text-left flex items-center gap-4 hover:border-axa-blue hover:shadow-axa-lg transition-all group"
+        >
+          <div className="w-11 h-11 rounded-axa bg-axa-blue/10 flex items-center justify-center flex-shrink-0">
+            <Wallet size={22} className="text-axa-blue" />
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-sm text-axa-dark">My AXA: Saved Cards</p>
+            <p className="text-xs text-axa-grey-700 mt-1 leading-relaxed">
+              Manage saved cards and set the default used for instalments &amp; renewals. Demonstrates
+              the SetupIntent + PaymentElement add-card flow and the "Set as default" orchestration
+              from pin #5 of the integration spotlight.
+            </p>
+          </div>
+          <ArrowRight size={16} className="text-axa-grey-400 group-hover:text-axa-blue group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+        </button>
       </div>
     </div>
   );

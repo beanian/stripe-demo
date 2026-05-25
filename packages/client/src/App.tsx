@@ -9,6 +9,7 @@ import ComparePage from './pages/ComparePage';
 import CheckoutConfirmation from './pages/CheckoutConfirmation';
 import ElementsConfirmation from './pages/ElementsConfirmation';
 import CustomConfirmation from './pages/CustomConfirmation';
+import MyAxaWallet from './pages/MyAxaWallet';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/confirmation/checkout" element={<CheckoutConfirmation />} />
         <Route path="/confirmation/elements" element={<ElementsConfirmation />} />
         <Route path="/confirmation/custom" element={<CustomConfirmation />} />
+        <Route path="/myaxa/wallet" element={<MyAxaWallet />} />
       </Route>
     </Routes>
   );

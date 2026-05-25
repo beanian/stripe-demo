@@ -22,3 +22,22 @@ export interface SessionStatusResponse {
   payment_status: string;
   customer_email: string | null;
 }
+
+export interface SavedCard {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  isDefault: boolean;
+}
+
+export interface WalletResponse {
+  customerId: string;
+  cards: SavedCard[];
+}
+
+export interface WalletSetupIntentResponse {
+  clientSecret: string;
+  customerId: string;
+}

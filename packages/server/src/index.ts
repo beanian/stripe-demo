@@ -7,6 +7,7 @@ import webhookRouter from './routes/webhook.js';
 import quoteRouter from './routes/quote.js';
 import checkoutRouter from './routes/checkout.js';
 import paymentIntentRouter from './routes/payment-intent.js';
+import walletRouter from './routes/wallet.js';
 import { getDemoCustomerId } from './services/demo-customer.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +32,7 @@ if (!isProduction) {
 app.use('/api', quoteRouter);
 app.use('/api', checkoutRouter);
 app.use('/api', paymentIntentRouter);
+app.use('/api', walletRouter);
 
 // In production, serve the built client files
 if (isProduction) {

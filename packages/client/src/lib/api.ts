@@ -4,6 +4,8 @@ import type {
   PaymentIntentResponse,
   UpdatePaymentIntentResponse,
   SessionStatusResponse,
+  WalletResponse,
+  WalletSetupIntentResponse,
 } from '../types/stripe';
 
 const API_BASE = '/api';
@@ -63,4 +65,26 @@ export function createSepaIntent(quoteId: string): Promise<PaymentIntentResponse
 
 export function getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
   return request<SessionStatusResponse>(`/session-status?session_id=${encodeURIComponent(sessionId)}`);
+}
+
+export function listWallet(): Promise<WalletResponse> {
+  return request<WalletResponse>('/wallet/payment-methods');
+}
+
+export function createWalletSetupIntent(): Promise<WalletSetupIntentResponse> {
+  return request<WalletSetupIntentResponse>('/wallet/create-setup-intent', { method: 'POST' });
+}
+
+export function setDefaultCard(paymentMethodId: string): Promise<{ ok: boolean; defaultPaymentMethodId: string }> {
+  return request('/wallet/set-default', {
+    method: 'POST',
+    body: JSON.stringify({ paymentMethodId }),
+  });
+}
+
+export function detachCard(paymentMethodId: string): Promise<{ ok: boolean; detached: string }> {
+  return request('/wallet/detach', {
+    method: 'POST',
+    body: JSON.stringify({ paymentMethodId }),
+  });
 }

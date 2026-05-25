@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Layers, Palette, Sparkles } from 'lucide-react';
+import { ArrowRight, Layers, Palette, Sparkles, Wallet } from 'lucide-react';
 import { ROUTES } from '../lib/constants';
 
 export default function LandingPage() {
@@ -48,6 +48,29 @@ export default function LandingPage() {
           <p className="font-semibold text-sm text-axa-dark">Path C: Custom</p>
           <p className="text-xs text-axa-grey-700 mt-1 leading-relaxed">Premium dark-themed experience with deep brand integration.</p>
         </div>
+      </div>
+
+      <div className="mt-6 max-w-2xl w-full">
+        <div className="text-[10px] font-bold tracking-[0.15em] text-axa-grey-400 uppercase mb-3">
+          Self-Serve · post-purchase
+        </div>
+        <button
+          onClick={() => navigate(ROUTES.MYAXA_WALLET)}
+          className="card-elevated p-5 w-full text-left flex items-center gap-4 hover:border-axa-blue hover:shadow-axa-lg transition-all group"
+        >
+          <div className="w-11 h-11 rounded-axa bg-axa-blue/10 flex items-center justify-center flex-shrink-0">
+            <Wallet size={22} className="text-axa-blue" />
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-sm text-axa-dark">My AXA: Saved Cards</p>
+            <p className="text-xs text-axa-grey-700 mt-1 leading-relaxed">
+              Manage saved cards and set the default used for instalments &amp; renewals.
+              Demonstrates the SetupIntent + PaymentElement add-card flow and the "Set as default"
+              orchestration described in pin #5 of the integration spotlight.
+            </p>
+          </div>
+          <ArrowRight size={16} className="text-axa-grey-400 group-hover:text-axa-blue group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+        </button>
       </div>
 
       <div className="mt-10 text-xs text-axa-grey-500 bg-axa-grey-50 border border-axa-grey-200 rounded-axa px-5 py-3 max-w-sm">
