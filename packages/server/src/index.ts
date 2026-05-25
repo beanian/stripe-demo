@@ -7,6 +7,7 @@ import webhookRouter from './routes/webhook.js';
 import quoteRouter from './routes/quote.js';
 import checkoutRouter from './routes/checkout.js';
 import paymentIntentRouter from './routes/payment-intent.js';
+import { getDemoCustomerId } from './services/demo-customer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,4 +43,7 @@ if (isProduction) {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  getDemoCustomerId()
+    .then((id) => console.log(`Demo customer ready: ${id}`))
+    .catch((err) => console.error('Failed to seed demo customer:', err));
 });

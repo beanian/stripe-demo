@@ -7,7 +7,12 @@ import type { PaymentSchedule } from '../../types/quote';
 
 interface ScheduleSelectorProps {
   paymentIntentId: string;
-  onUpdate: (clientSecret: string, amount: number, sepaClientSecret?: string | null) => void;
+  onUpdate: (
+    clientSecret: string,
+    amount: number,
+    sepaClientSecret?: string | null,
+    customerSessionClientSecret?: string | null,
+  ) => void;
 }
 
 function formatCurrency(amount: number): string {
@@ -24,7 +29,10 @@ export default function ScheduleSelector({ paymentIntentId, onUpdate }: Schedule
     setUpdating(true);
 
     try {
-      const { clientSecret, amount } = await updatePaymentIntent(paymentIntentId, newSchedule);
+      const { clientSecret, amount, customerSessionClientSecret } = await updatePaymentIntent(
+        paymentIntentId,
+        newSchedule,
+      );
 
       let sepaSecret: string | null = null;
       if (newSchedule === 'deposit') {
@@ -33,7 +41,7 @@ export default function ScheduleSelector({ paymentIntentId, onUpdate }: Schedule
       }
 
       setSchedule(newSchedule);
-      onUpdate(clientSecret, amount, sepaSecret);
+      onUpdate(clientSecret, amount, sepaSecret, customerSessionClientSecret ?? null);
     } catch {
       // revert on error — schedule wasn't changed
     } finally {

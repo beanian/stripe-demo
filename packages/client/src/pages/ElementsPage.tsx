@@ -15,6 +15,10 @@ import PaymentForm from '../components/elements/PaymentForm';
 import DirectDebitInfo from '../components/elements/DirectDebitInfo';
 import TrustSignals from '../components/elements/TrustSignals';
 import ContextualHelp from '../components/elements/ContextualHelp';
+import {
+  IntegrationSpotlightProvider,
+  IntegrationAnchor,
+} from '../components/integration/IntegrationSpotlight';
 
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
@@ -24,6 +28,7 @@ export default function ElementsPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
+  const [customerSessionSecret, setCustomerSessionSecret] = useState<string | null>(null);
   const [sepaClientSecret, setSepaClientSecret] = useState<string | null>(null);
   const [confirmSepa, setConfirmSepa] = useState<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +44,7 @@ export default function ElementsPage() {
         setClientSecret(data.clientSecret);
         setPaymentIntentId(data.paymentIntentId);
         setAmount(data.amount);
+        setCustomerSessionSecret(data.customerSessionClientSecret ?? null);
       }),
     ];
 
@@ -56,7 +62,12 @@ export default function ElementsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleScheduleUpdate(newClientSecret: string, newAmount: number, newSepaSecret?: string | null) {
+  function handleScheduleUpdate(
+    newClientSecret: string,
+    newAmount: number,
+    newSepaSecret?: string | null,
+    newCustomerSessionSecret?: string | null,
+  ) {
     setClientSecret(newClientSecret);
     setAmount(newAmount);
     if (newSepaSecret !== undefined) {
@@ -64,6 +75,9 @@ export default function ElementsPage() {
     }
     if (!newSepaSecret) {
       setConfirmSepa(null);
+    }
+    if (newCustomerSessionSecret !== undefined) {
+      setCustomerSessionSecret(newCustomerSessionSecret);
     }
   }
 
@@ -91,6 +105,7 @@ export default function ElementsPage() {
   }
 
   return (
+    <IntegrationSpotlightProvider>
     <div className="max-w-6xl mx-auto px-4 py-8">
       <StepIndicator currentStep={2} />
 
@@ -106,10 +121,12 @@ export default function ElementsPage() {
         {/* Main payment column */}
         <div className="lg:col-span-2 space-y-6">
           {paymentIntentId && (
-            <ScheduleSelector
-              paymentIntentId={paymentIntentId}
-              onUpdate={handleScheduleUpdate}
-            />
+            <IntegrationAnchor specId="payment-intent">
+              <ScheduleSelector
+                paymentIntentId={paymentIntentId}
+                onUpdate={handleScheduleUpdate}
+              />
+            </IntegrationAnchor>
           )}
 
           {initializing || !clientSecret ? (
@@ -128,31 +145,59 @@ export default function ElementsPage() {
                 />
               )}
 
-              <Elements
-                stripe={stripePromise}
-                options={{ clientSecret, appearance: axaAppearance }}
-                key={clientSecret}
-              >
-                <PaymentForm
-                  amount={amount}
-                  schedule={schedule}
-                  remainingBalance={quote.remainingBalance}
-                  confirmSepa={confirmSepa}
-                  startDate={quote.startDate}
-                />
-              </Elements>
+              <IntegrationAnchor specId="customer-session" position="top-right">
+                <IntegrationAnchor specId="list-saved-pms" position="top-left">
+                  <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                    <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
+                      <Elements
+                        stripe={stripePromise}
+                        options={{
+                          clientSecret,
+                          appearance: axaAppearance,
+                          ...(customerSessionSecret
+                            ? { customerSessionClientSecret: customerSessionSecret }
+                            : {}),
+                        }}
+                        key={clientSecret}
+                      >
+                        <PaymentForm
+                          amount={amount}
+                          schedule={schedule}
+                          remainingBalance={quote.remainingBalance}
+                          confirmSepa={confirmSepa}
+                          startDate={quote.startDate}
+                        />
+                      </Elements>
+                    </IntegrationAnchor>
+                  </IntegrationAnchor>
+                </IntegrationAnchor>
+              </IntegrationAnchor>
             </div>
           ) : (
             /* Pay in Full — just the card form */
-            <div className="card-elevated p-6 animate-fade-in">
-              <Elements
-                stripe={stripePromise}
-                options={{ clientSecret, appearance: axaAppearance }}
-                key={clientSecret}
-              >
-                <PaymentForm amount={amount} schedule={schedule} />
-              </Elements>
-            </div>
+            <IntegrationAnchor specId="customer-session" position="top-right">
+              <IntegrationAnchor specId="list-saved-pms" position="top-left">
+                <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                  <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
+                    <div className="card-elevated p-6 animate-fade-in">
+                      <Elements
+                        stripe={stripePromise}
+                        options={{
+                          clientSecret,
+                          appearance: axaAppearance,
+                          ...(customerSessionSecret
+                            ? { customerSessionClientSecret: customerSessionSecret }
+                            : {}),
+                        }}
+                        key={clientSecret}
+                      >
+                        <PaymentForm amount={amount} schedule={schedule} />
+                      </Elements>
+                    </div>
+                  </IntegrationAnchor>
+                </IntegrationAnchor>
+              </IntegrationAnchor>
+            </IntegrationAnchor>
           )}
 
           <TrustSignals />
@@ -161,10 +206,13 @@ export default function ElementsPage() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <QuoteSummaryCard quote={quote} schedule={schedule} compact />
+          <IntegrationAnchor specId="sync-customer" position="top-right">
+            <QuoteSummaryCard quote={quote} schedule={schedule} compact />
+          </IntegrationAnchor>
           <TestCardsPanel />
         </div>
       </div>
     </div>
+    </IntegrationSpotlightProvider>
   );
 }

@@ -25,6 +25,10 @@ import { createPaymentIntent, createSepaIntent, updatePaymentIntent } from '../l
 import { STRIPE_PUBLISHABLE_KEY, QUOTE_ID, ROUTES } from '../lib/constants';
 import { customAppearance } from '../lib/stripe-appearance-custom';
 import TestCardsPanel from '../components/shared/TestCardsPanel';
+import {
+  IntegrationSpotlightProvider,
+  IntegrationAnchor,
+} from '../components/integration/IntegrationSpotlight';
 import type { Quote, PaymentSchedule } from '../types/quote';
 
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
@@ -761,6 +765,7 @@ export default function CustomPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
+  const [customerSessionSecret, setCustomerSessionSecret] = useState<string | null>(null);
   const [sepaClientSecret, setSepaClientSecret] = useState<string | null>(null);
   const [confirmSepa, setConfirmSepa] = useState<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -783,6 +788,7 @@ export default function CustomPage() {
         setClientSecret(data.clientSecret);
         setPaymentIntentId(data.paymentIntentId);
         setAmount(data.amount);
+        setCustomerSessionSecret(data.customerSessionClientSecret ?? null);
       }),
     ];
 
@@ -813,7 +819,11 @@ export default function CustomPage() {
     if (newSchedule !== schedule && paymentIntentId) {
       setScheduleUpdating(true);
       try {
-        const { clientSecret: newSecret, amount: newAmount } = await updatePaymentIntent(paymentIntentId, newSchedule);
+        const {
+          clientSecret: newSecret,
+          amount: newAmount,
+          customerSessionClientSecret: newSessionSecret,
+        } = await updatePaymentIntent(paymentIntentId, newSchedule);
         let sepaSecret: string | null = null;
         if (newSchedule === 'deposit') {
           const sepaData = await createSepaIntent(QUOTE_ID);
@@ -822,6 +832,7 @@ export default function CustomPage() {
         setSchedule(newSchedule);
         setClientSecret(newSecret);
         setAmount(newAmount);
+        setCustomerSessionSecret(newSessionSecret ?? null);
         if (sepaSecret !== undefined) setSepaClientSecret(sepaSecret);
         if (!sepaSecret) setConfirmSepa(null);
       } catch {
@@ -884,6 +895,7 @@ export default function CustomPage() {
   }
 
   return (
+    <IntegrationSpotlightProvider>
     <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 -mb-8">
       <div className="min-h-screen bg-axa-grey-100 custom-bg-pattern">
         {/* Top bar */}
@@ -921,12 +933,14 @@ export default function CustomPage() {
                   <span className="text-sm text-axa-grey-400">Preparing your checkout...</span>
                 </div>
               ) : currentStep === 'schedule' ? (
-                <ScheduleStep
-                  quote={quote}
-                  schedule={schedule}
-                  updating={scheduleUpdating}
-                  onSelect={handleScheduleSelect}
-                />
+                <IntegrationAnchor specId="payment-intent" position="top-right">
+                  <ScheduleStep
+                    quote={quote}
+                    schedule={schedule}
+                    updating={scheduleUpdating}
+                    onSelect={handleScheduleSelect}
+                  />
+                </IntegrationAnchor>
               ) : currentStep === 'pbi-method' ? (
                 <PbiMethodStep
                   quote={quote}
@@ -946,19 +960,33 @@ export default function CustomPage() {
                   />
                 </Elements>
               ) : currentStep === 'card' ? (
-                <Elements
-                  stripe={stripePromise}
-                  options={{ clientSecret, appearance: customAppearance }}
-                  key={clientSecret}
-                >
-                  <CustomCardForm
-                    amount={amount}
-                    schedule={schedule}
-                    remainingBalance={quote.remainingBalance}
-                    confirmSepa={confirmSepa}
-                    pbiMethod={pbiMethod}
-                  />
-                </Elements>
+                <IntegrationAnchor specId="customer-session" position="top-right">
+                  <IntegrationAnchor specId="list-saved-pms" position="top-left">
+                    <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                      <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
+                        <Elements
+                          stripe={stripePromise}
+                          options={{
+                            clientSecret,
+                            appearance: customAppearance,
+                            ...(customerSessionSecret
+                              ? { customerSessionClientSecret: customerSessionSecret }
+                              : {}),
+                          }}
+                          key={clientSecret}
+                        >
+                          <CustomCardForm
+                            amount={amount}
+                            schedule={schedule}
+                            remainingBalance={quote.remainingBalance}
+                            confirmSepa={confirmSepa}
+                            pbiMethod={pbiMethod}
+                          />
+                        </Elements>
+                      </IntegrationAnchor>
+                    </IntegrationAnchor>
+                  </IntegrationAnchor>
+                </IntegrationAnchor>
               ) : null}
 
               <div className="mt-10">
@@ -968,17 +996,20 @@ export default function CustomPage() {
 
             {/* Sidebar */}
             <div className="hidden lg:block">
-              <LiveSummary
-                quote={quote}
-                schedule={schedule}
-                amount={amount}
-                currentStep={currentStep}
-                pbiMethod={pbiMethod}
-              />
+              <IntegrationAnchor specId="sync-customer" position="top-right">
+                <LiveSummary
+                  quote={quote}
+                  schedule={schedule}
+                  amount={amount}
+                  currentStep={currentStep}
+                  pbiMethod={pbiMethod}
+                />
+              </IntegrationAnchor>
             </div>
           </div>
         </div>
       </div>
     </div>
+    </IntegrationSpotlightProvider>
   );
 }
