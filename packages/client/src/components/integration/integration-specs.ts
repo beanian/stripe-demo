@@ -144,32 +144,38 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
       'Default to the browser-direct pattern — it scales better, avoids a MuleSoft hop, and lets Stripe Elements handle card brand icons / expiry warnings. Only fall back to a server-side proxy where Stripe.js cannot be loaded.',
   },
   {
-    id: 'webhook-pm-attached',
+    id: 'set-default-card',
     number: 5,
-    title: 'Webhook: new card saved',
-    uiAnchor: '"Save payment details for future purchases" checkbox',
+    title: 'Set a saved card as default → sync to BillingCenter',
+    uiAnchor: 'My AXA self-serve "Manage saved cards" screen (not on this page)',
     blurb:
-      'When the user ticks "save" and confirms the payment, Stripe attaches the card and fires payment_method.attached. The single purpose of this event for AXA is to push the Stripe PaymentMethod ID into Guidewire BillingCenter, so BC can charge subsequent instalments and refund to the original card.',
-    direction: 'inbound-webhook',
-    endpoint: { method: 'POST', path: '/webhooks/stripe (MuleSoft endpoint)' },
-    trigger: 'Stripe → MuleSoft after card is attached.',
-    webhookEvents: ['payment_method.attached', 'payment_method.detached', 'payment_method.updated'],
-    requestSample: `{
-  "type": "payment_method.attached",
-  "data": {
-    "object": {
-      "id": "pm_1NxYz…",
-      "customer": "cus_Ua45hy5HUFvTKo",
-      "card": { "brand": "visa", "last4": "4242", "exp_month": 8, "exp_year": 2029 },
-      "allow_redisplay": "always"
-    }
+      'AXA only pushes a saved card into BillingCenter when the customer takes deliberate action: either they pay with it (covered by #6) or they pick it as their default in self-serve. Merely saving a card does NOT trigger a BC sync — payment_method.attached is intentionally not subscribed.',
+    direction: 'outbound',
+    endpoint: { method: 'POST', path: '/v1/customers/{id} (Stripe) + BC payment-instrument upsert' },
+    trigger:
+      'Customer clicks "Set as default" on a saved card in My AXA / mobile self-serve. Synchronous MuleSoft orchestration — no webhook in the loop.',
+    requestSample: `// Step 1 — MuleSoft updates Stripe
+POST /v1/customers/cus_Ua45hy5HUFvTKo
+{
+  "invoice_settings": {
+    "default_payment_method": "pm_1NxYz…"
   }
+}
+
+// Step 2 — MuleSoft updates Guidewire BC
+PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
+{
+  "stripePaymentMethodId": "pm_1NxYz…",
+  "brand": "visa",
+  "last4": "4242",
+  "expMonth": 8,
+  "expYear": 2029
 }`,
     muleSoftRole:
-      'Verify signature, dedupe by event ID, resolve the Stripe customer ID to an AXA account in Guidewire BillingCenter, and upsert the PaymentMethod ID (plus brand / last4 / expiry for display) against that account. On .detached, mark the BC payment instrument inactive. On .updated, patch BC with the new expiry.',
-    axaSystems: ['Guidewire BillingCenter'],
+      'Orchestrate the two writes as a single user action with rollback semantics — if the BC update fails, revert the Stripe default (or queue compensation). BC must always reflect the same default that Stripe holds, because BC is the system that initiates instalment charges.',
+    axaSystems: ['My AXA self-serve', 'Guidewire BillingCenter'],
     notes:
-      'Webhook signature verification is critical — anything posting to /webhooks/stripe without a valid Stripe-Signature header must be rejected at the MuleSoft edge. Subscribe to .updated specifically to pick up Stripe\'s card auto-updater rolling forward expired cards — otherwise BC will try to charge a dead PaymentMethod and instalments will fail.',
+      'We do NOT subscribe to payment_method.attached / .detached / .updated. The card auto-updater concern still applies, but it is handled inside #6: every successful instalment charge re-asserts the PM ID into BC, so a refreshed card flows through naturally on the next debit.',
   },
   {
     id: 'webhook-payment-success',
@@ -195,7 +201,7 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   }
 }`,
     muleSoftRole:
-      'Verify signature, dedupe by event ID, then drive two downstream calls: (a) Guidewire PolicyCenter — bind / issue the policy referenced by metadata.quoteId, (b) Guidewire BillingCenter — record the payment received against the BC invoice so the account settles. BC also owns instalment scheduling for PBI from this point on.',
+      'Verify signature, dedupe by event ID, then drive two downstream calls: (a) Guidewire PolicyCenter — bind / issue the policy referenced by metadata.quoteId, (b) Guidewire BillingCenter — record the payment received against the BC invoice AND upsert the PaymentMethod ID used (with brand / last4 / expiry) as a known payment instrument on the account. This is THE moment a card becomes known to BC — saving a card without paying does not. BC also owns instalment scheduling for PBI from this point on, and a successful instalment charge here re-asserts the PM details (catching Stripe card-auto-updater changes).',
     axaSystems: ['Guidewire PolicyCenter (PAS)', 'Guidewire BillingCenter'],
   },
 ];

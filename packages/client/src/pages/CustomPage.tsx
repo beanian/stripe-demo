@@ -962,7 +962,7 @@ export default function CustomPage() {
               ) : currentStep === 'card' ? (
                 <IntegrationAnchor specId="customer-session" position="top-right">
                   <IntegrationAnchor specId="list-saved-pms" position="top-left">
-                    <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                    <IntegrationAnchor specId="set-default-card" position="bottom-right">
                       <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
                         <Elements
                           stripe={stripePromise}

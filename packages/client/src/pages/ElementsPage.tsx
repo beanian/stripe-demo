@@ -147,7 +147,7 @@ export default function ElementsPage() {
 
               <IntegrationAnchor specId="customer-session" position="top-right">
                 <IntegrationAnchor specId="list-saved-pms" position="top-left">
-                  <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                  <IntegrationAnchor specId="set-default-card" position="bottom-right">
                     <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
                       <Elements
                         stripe={stripePromise}
@@ -177,7 +177,7 @@ export default function ElementsPage() {
             /* Pay in Full — just the card form */
             <IntegrationAnchor specId="customer-session" position="top-right">
               <IntegrationAnchor specId="list-saved-pms" position="top-left">
-                <IntegrationAnchor specId="webhook-pm-attached" position="bottom-right">
+                <IntegrationAnchor specId="set-default-card" position="bottom-right">
                   <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
                     <div className="card-elevated p-6 animate-fade-in">
                       <Elements
