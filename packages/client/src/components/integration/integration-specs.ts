@@ -133,10 +133,10 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   ]
 }`,
     muleSoftRole:
-      'In any AXA channel that embeds Stripe Elements (checkout AND My AXA "Manage saved cards"), this stays browser-direct — MuleSoft just mints the CustomerSession (#3) and stays out of the read path. MuleSoft only proxies this call server-side for channels that DO NOT load Stripe.js: server-rendered policy pages showing "Paid by Visa •4242" as read-only metadata, back-office / call-centre tools, batch reporting. No local wallet table is maintained in either case — Stripe is canonical.',
-    axaSystems: ['Self-serve portal (Stripe.js path)', 'Mobile app (Stripe SDK path)', 'Server-rendered policy pages (MuleSoft proxy path)', 'Call-centre tooling (MuleSoft proxy path)'],
+      'In the checkout flow where Stripe Elements renders the PaymentElement with a CustomerSession, this stays browser-direct — MuleSoft just mints the CustomerSession (#3) and stays out of the read path. MuleSoft only proxies this call server-side for channels that DO NOT load Stripe.js for payment: the My AXA wallet list (rendered as custom React, see wallet pin #2), server-rendered policy pages showing "Paid by Visa •4242" as read-only metadata, back-office / call-centre tools, batch reporting. No local wallet table is maintained in either case — Stripe is canonical.',
+    axaSystems: ['Checkout (Stripe.js path)', 'Mobile app (Stripe SDK path)', 'My AXA wallet list (MuleSoft proxy path)', 'Server-rendered policy pages (MuleSoft proxy path)', 'Call-centre tooling (MuleSoft proxy path)'],
     notes:
-      'Default to the browser-direct pattern — it scales better, avoids a MuleSoft hop, and lets Stripe Elements handle card brand icons / expiry warnings. Only fall back to a server-side proxy where Stripe.js cannot be loaded.',
+      'Default to the browser-direct pattern inside the PaymentElement — it scales better, avoids a MuleSoft hop, and lets Stripe Elements handle card brand icons / expiry warnings. Fall back to a server-side proxy where Stripe.js is not loaded for payment, including the My AXA wallet (where the list is custom AXA UI, not a Stripe Element).',
   },
   {
     id: 'set-default-card',
@@ -246,7 +246,7 @@ PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
       'Proxy a GET endpoint that returns { cards: [...], defaultPaymentMethodId } shaped for the AXA UI. Two Stripe calls in parallel under the hood. Cacheable per-session for a few seconds but not longer — must reflect the latest mutations.',
     axaSystems: ['My AXA self-serve', 'API gateway'],
     notes:
-      'Architectural boundary: above this point the UI is custom React. Below this point everything is Stripe. The PaymentElement (in #4) is the ONLY Stripe-rendered surface on this page.',
+      'Architectural boundary: above this point the UI is custom React. Below this point everything is Stripe. The Embedded Checkout iframe (in #3) is the ONLY Stripe-rendered surface on this page.',
   },
   {
     id: 'wallet-add-card',
