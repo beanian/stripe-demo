@@ -65,7 +65,7 @@ export default function LandingPage() {
             <p className="font-semibold text-sm text-axa-dark">My AXA: Saved Cards</p>
             <p className="text-xs text-axa-grey-700 mt-1 leading-relaxed">
               Manage saved cards and set the default used for instalments &amp; renewals.
-              Demonstrates the SetupIntent + PaymentElement add-card flow and the "Set as default"
+              Demonstrates the Checkout Session (setup mode) add-card flow and the "Set as default"
               orchestration described in pin #5 of the integration spotlight.
             </p>
           </div>

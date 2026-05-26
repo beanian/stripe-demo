@@ -50,28 +50,41 @@ router.get('/wallet/payment-methods', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/wallet/create-setup-intent', async (_req: Request, res: Response) => {
+router.post('/wallet/create-setup-checkout-session', async (_req: Request, res: Response) => {
   try {
     const customerId = await getDemoCustomerId();
 
-    // No CustomerSession on this flow on purpose:
-    // "Add a new card" must collect new card details only — it must NOT offer
-    // the user their already-saved cards (the whole UI above is for that).
-    // The SetupIntent is bound to the customer server-side, so the new
-    // PaymentMethod is attached automatically on confirmSetup.
-    const setupIntent = await stripe.setupIntents.create({
+    // Stripe-recommended pattern for saving a new card: a Checkout Session
+    // in `mode: 'setup'`. Stripe owns the entire add-card surface (form, PCI
+    // scope, 3DS, brand validation, a11y, localisation) — we never touch
+    // a raw SetupIntent client_secret. The Session is bound to the customer
+    // server-side, so the new PaymentMethod is attached automatically once
+    // setup succeeds.
+    //
+    // "Add a new card" must collect new card details only — it must NOT
+    // surface the user's already-saved cards (the wallet list above is the
+    // surface for picking existing ones). Checkout in setup mode does not
+    // re-render saved cards, so this is the default behaviour.
+    //
+    // ui_mode=embedded + redirect_on_completion=never keeps the entire flow
+    // on the wallet page — the client receives an onComplete callback
+    // instead of a top-level redirect.
+    const session = await stripe.checkout.sessions.create({
+      mode: 'setup',
+      ui_mode: 'embedded',
       customer: customerId,
       payment_method_types: ['card'],
-      usage: 'off_session',
+      currency: 'eur',
+      redirect_on_completion: 'never',
     });
 
     res.json({
-      clientSecret: setupIntent.client_secret,
+      clientSecret: session.client_secret,
       customerId,
     });
   } catch (error) {
-    console.error('Error creating setup intent:', error);
-    res.status(500).json({ error: 'Failed to create setup intent' });
+    console.error('Error creating setup checkout session:', error);
+    res.status(500).json({ error: 'Failed to create setup checkout session' });
   }
 });
 
