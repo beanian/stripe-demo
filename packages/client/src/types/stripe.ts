@@ -37,7 +37,7 @@ export interface WalletResponse {
   cards: SavedCard[];
 }
 
-export interface WalletSetupIntentResponse {
+export interface WalletSetupCheckoutSessionResponse {
   clientSecret: string;
   customerId: string;
 }

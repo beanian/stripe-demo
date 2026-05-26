@@ -5,7 +5,7 @@ import type {
   UpdatePaymentIntentResponse,
   SessionStatusResponse,
   WalletResponse,
-  WalletSetupIntentResponse,
+  WalletSetupCheckoutSessionResponse,
 } from '../types/stripe';
 
 const API_BASE = '/api';
@@ -71,8 +71,10 @@ export function listWallet(): Promise<WalletResponse> {
   return request<WalletResponse>('/wallet/payment-methods');
 }
 
-export function createWalletSetupIntent(): Promise<WalletSetupIntentResponse> {
-  return request<WalletSetupIntentResponse>('/wallet/create-setup-intent', { method: 'POST' });
+export function createWalletSetupCheckoutSession(): Promise<WalletSetupCheckoutSessionResponse> {
+  return request<WalletSetupCheckoutSessionResponse>('/wallet/create-setup-checkout-session', {
+    method: 'POST',
+  });
 }
 
 export function setDefaultCard(paymentMethodId: string): Promise<{ ok: boolean; defaultPaymentMethodId: string }> {

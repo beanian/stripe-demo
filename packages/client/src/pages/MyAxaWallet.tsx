@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import {
   Loader2,
   AlertCircle,
@@ -17,12 +17,11 @@ import {
 import { useNavigate } from 'react-router-dom';
 import {
   listWallet,
-  createWalletSetupIntent,
+  createWalletSetupCheckoutSession,
   setDefaultCard,
   detachCard,
 } from '../lib/api';
 import { STRIPE_PUBLISHABLE_KEY, ROUTES } from '../lib/constants';
-import { axaAppearance } from '../lib/stripe-appearance';
 import type { SavedCard } from '../types/stripe';
 import {
   IntegrationSpotlightProvider,
@@ -208,94 +207,46 @@ function SavedCardRow({
 }
 
 /* ─────────────────────────────────────────────────────
-   Add-card panel — SetupIntent + PaymentElement
+   Add-card panel — Checkout Session (setup mode) + Embedded Checkout
+
+   Stripe-recommended pattern: the entire add-card surface (form, 3DS,
+   brand validation, a11y, localisation) lives inside the Embedded
+   Checkout iframe. We hand it a client_secret from a setup-mode
+   Checkout Session and wait for the `onComplete` callback.
    ───────────────────────────────────────────────────── */
 
 function AddCardForm({
+  clientSecret,
   onCancel,
   onSuccess,
 }: {
+  clientSecret: string;
   onCancel: () => void;
   onSuccess: (message: string) => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setProcessing(true);
-    setError(null);
-
-    const { error: stripeError, setupIntent } = await stripe.confirmSetup({
-      elements,
-      confirmParams: { return_url: window.location.href },
-      redirect: 'if_required',
-    });
-
-    if (stripeError) {
-      setError(stripeError.message ?? 'Unable to save card.');
-      setProcessing(false);
-      return;
-    }
-
-    if (setupIntent?.status === 'succeeded') {
-      onSuccess('Card saved to your wallet');
-    } else {
-      setError(`Unexpected setup status: ${setupIntent?.status ?? 'unknown'}`);
-      setProcessing(false);
-    }
-  }
+  const fetchClientSecret = useCallback(async () => clientSecret, [clientSecret]);
+  const handleComplete = useCallback(() => {
+    onSuccess('Card saved to your wallet');
+  }, [onSuccess]);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in">
-      <PaymentElement
-        options={{
-          layout: 'tabs',
-          // Hide the "Save for future use" UX here — by virtue of being on the
-          // wallet page, the user's intent is already to save.
-          terms: { card: 'never' },
-        }}
-      />
+    <div className="space-y-4 animate-fade-in">
+      <EmbeddedCheckoutProvider
+        stripe={stripePromise}
+        options={{ fetchClientSecret, onComplete: handleComplete }}
+        key={clientSecret}
+      >
+        <EmbeddedCheckout />
+      </EmbeddedCheckoutProvider>
 
-      {error && (
-        <div className="flex items-start gap-2.5 text-axa-red text-sm bg-red-50 border border-red-200 p-3 rounded-axa">
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={!stripe || processing}
-          className="flex-1 bg-axa-blue text-white font-semibold text-sm py-3 rounded-axa hover:bg-axa-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {processing ? (
-            <>
-              <Loader2 className="animate-spin" size={16} />
-              Saving card...
-            </>
-          ) : (
-            <>
-              <Shield size={16} />
-              Save card to wallet
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={processing}
-          className="px-4 py-3 text-sm font-semibold text-axa-grey-700 hover:bg-axa-grey-100 rounded-axa transition-colors disabled:opacity-50"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="w-full px-4 py-3 text-sm font-semibold text-axa-grey-700 hover:bg-axa-grey-100 rounded-axa transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
   );
 }
 
@@ -311,7 +262,7 @@ export default function MyAxaWallet() {
   const [busyAction, setBusyAction] = useState<'default' | 'remove' | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
+  const [checkoutClientSecret, setCheckoutClientSecret] = useState<string | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -372,8 +323,8 @@ export default function MyAxaWallet() {
     setAddOpen(true);
     setSetupLoading(true);
     try {
-      const data = await createWalletSetupIntent();
-      setSetupClientSecret(data.clientSecret);
+      const data = await createWalletSetupCheckoutSession();
+      setCheckoutClientSecret(data.clientSecret);
     } catch (err) {
       pushToast('error', (err as Error).message || 'Could not start add-card flow');
       setAddOpen(false);
@@ -384,7 +335,7 @@ export default function MyAxaWallet() {
 
   function closeAddCard() {
     setAddOpen(false);
-    setSetupClientSecret(null);
+    setCheckoutClientSecret(null);
   }
 
   async function handleAddCardSuccess(message: string) {
@@ -500,7 +451,7 @@ export default function MyAxaWallet() {
                 <Plus size={16} />
                 Add a new card
               </button>
-            ) : setupLoading || !setupClientSecret ? (
+            ) : setupLoading || !checkoutClientSecret ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="animate-spin text-axa-blue" size={24} />
                 <span className="ml-3 text-sm text-axa-grey-700">Preparing secure card form…</span>
@@ -508,20 +459,18 @@ export default function MyAxaWallet() {
             ) : (
               <IntegrationAnchor specId="wallet-add-card" position="top-right">
                 <div className="bg-axa-grey-50 rounded-axa p-4 -mx-2 relative">
-                  <SurfaceLabel kind="stripe" label="Stripe Elements · PaymentElement (new card only)" />
+                  <SurfaceLabel
+                    kind="stripe"
+                    label="Stripe Embedded Checkout · setup mode (new card only)"
+                  />
                   <h3 className="text-xs font-bold tracking-widest text-axa-grey-500 uppercase mb-3">
                     Add a new card
                   </h3>
-                  <Elements
-                    stripe={stripePromise}
-                    options={{
-                      clientSecret: setupClientSecret,
-                      appearance: axaAppearance,
-                    }}
-                    key={setupClientSecret}
-                  >
-                    <AddCardForm onCancel={closeAddCard} onSuccess={handleAddCardSuccess} />
-                  </Elements>
+                  <AddCardForm
+                    clientSecret={checkoutClientSecret}
+                    onCancel={closeAddCard}
+                    onSuccess={handleAddCardSuccess}
+                  />
                 </div>
               </IntegrationAnchor>
             )}

@@ -250,39 +250,46 @@ PATCH /billing/v1/accounts/{axa_account_id}/payment-instruments/default
   },
   {
     id: 'wallet-add-card',
-    title: 'Add a new card (SetupIntent + PaymentElement)',
-    uiAnchor: 'The "Add a new card" expanding panel — the ONLY Stripe Elements surface on this page',
+    title: 'Add a new card (Checkout Session in setup mode)',
+    uiAnchor: 'The "Add a new card" expanding panel — the ONLY Stripe-rendered surface on this page',
     blurb:
-      'A SetupIntent attaches a new card to the customer without charging it. The form is rendered by Stripe\'s PaymentElement, so PCI scope, 3DS, brand validation, accessibility and localisation all stay inside Stripe. Critically, this flow does NOT pass a CustomerSession — that would surface the user\'s already-saved cards as alternatives, and the explicit user intent here is to add a new one. NO BC sync at this point — the card joins the Stripe wallet but does not become known to BC until the user either pays with it (#6 on checkout flow) or sets it as default (#4 below).',
+      'A Checkout Session in `mode: setup` attaches a new card to the customer without charging it. This is the pattern Stripe recommends for new integrations: the form is rendered by Embedded Checkout, so PCI scope, 3DS, brand validation, accessibility and localisation all stay inside Stripe — and a future move to Apple Pay / Google Pay / Link is a server-side flag flip, not a re-architecture. The Session is bound to the customer server-side, so the new PaymentMethod is attached automatically once setup succeeds. The explicit user intent here is to add a NEW card, so existing-card hints are deliberately omitted — the wallet list above is the surface for picking existing ones. NO BC sync at this point — the card joins the Stripe wallet but does not become known to BC until the user either pays with it (#6 on checkout flow) or sets it as default (#4 below).',
     direction: 'outbound',
-    endpoint: { method: 'POST', path: '/v1/setup_intents  →  browser stripe.confirmSetup()' },
-    trigger: 'User clicks "Add a new card", confirms via PaymentElement, hits "Save card to wallet".',
-    requestSample: `// MuleSoft creates the SetupIntent
-POST /v1/setup_intents
+    endpoint: { method: 'POST', path: '/v1/checkout/sessions (mode=setup)  →  browser Embedded Checkout' },
+    trigger: 'User clicks "Add a new card", confirms inside Embedded Checkout — onComplete fires inline.',
+    requestSample: `// MuleSoft creates the Checkout Session in setup mode
+POST /v1/checkout/sessions
 {
+  "mode": "setup",
+  "ui_mode": "embedded",
   "customer": "cus_Ua45hy5HUFvTKo",
   "payment_method_types": ["card"],
-  "usage": "off_session"
+  "currency": "eur",
+  "redirect_on_completion": "never"
 }
 
-// Browser then confirms it via Stripe.js
-stripe.confirmSetup({
-  elements,
-  confirmParams: { return_url: window.location.href },
-  redirect: 'if_required'
-})`,
+// Browser mounts Embedded Checkout via Stripe.js
+<EmbeddedCheckoutProvider
+  stripe={stripePromise}
+  options={{ fetchClientSecret, onComplete }}
+>
+  <EmbeddedCheckout />
+</EmbeddedCheckoutProvider>`,
     responseSample: `{
-  "id": "seti_1Pq…",
-  "client_secret": "seti_1Pq…_secret_…",
-  "status": "succeeded",
-  "payment_method": "pm_1NewCard…",
-  "customer": "cus_Ua45hy5HUFvTKo"
+  "id": "cs_test_a1B2c3D4…",
+  "object": "checkout.session",
+  "mode": "setup",
+  "ui_mode": "embedded",
+  "client_secret": "cs_test_a1B2c3D4…_secret_…",
+  "customer": "cus_Ua45hy5HUFvTKo",
+  "setup_intent": "seti_1Pq…",
+  "status": "open"
 }`,
     muleSoftRole:
-      'Mint the SetupIntent on demand, return only the client_secret to the browser. The actual confirmation happens browser-direct via Stripe.js — MuleSoft is not on the confirm path.',
+      'Mint the Checkout Session on demand, return only the session client_secret to the browser. The actual card confirmation happens browser-direct inside Embedded Checkout — MuleSoft is not on the confirm path. Setup webhooks (`checkout.session.completed` with mode=setup, or `setup_intent.succeeded`) can be subscribed if a server-side trigger is needed; the wallet UI itself just reloads the saved-card list (#2) when onComplete fires.',
     axaSystems: ['My AXA self-serve', 'API gateway'],
     notes:
-      'Adding a card is deliberately invisible to BC. This is the correct behaviour — BC should only track cards that have been used or explicitly chosen as default. Saving a card alone is not a billing event.',
+      'Stripe-recommended pattern, replacing the older raw `SetupIntent + PaymentElement + confirmSetup` flow. Adding a card is still deliberately invisible to BC — BC only tracks cards that have been used or explicitly chosen as default. Saving a card alone is not a billing event.',
   },
   {
     id: 'wallet-set-default',
