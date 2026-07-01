@@ -1,7 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import type { StripePaymentElementOptions } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  ExpressCheckoutElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+import type { StripeExpressCheckoutElementReadyEvent } from '@stripe/stripe-js';
 import {
   Loader2,
   AlertCircle,
@@ -10,6 +17,7 @@ import {
   Check,
   ShieldCheck,
   Lock,
+  CreditCard,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createShowcaseIntent } from '../lib/api';
@@ -27,20 +35,19 @@ function formatCurrency(amount: number): string {
    Kept as a named const so we can render it verbatim in the
    proof panel — what you see rendered IS what's shown here.
    ───────────────────────────────────────────────────── */
+// Card-only Payment Element: wallets are handled separately by the custom
+// selector + Express Checkout Element, so the card path renders just the card
+// fields. This lets our cardholder-name field sit directly under the method
+// selector, above the card number — exactly the mockup order.
 const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
-  // Tabs put the payment-method selector at the TOP (wallets included), so a
-  // wallet never gets stranded below the card fields the way it does in the
-  // accordion layout (which expands the selected method's fields inline).
-  layout: { type: 'tabs' },
+  layout: { type: 'accordion', radios: false, spacedAccordionItems: false },
   wallets: {
-    applePay: 'auto',
-    googlePay: 'auto',
+    applePay: 'never',
+    googlePay: 'never',
   },
   fields: {
     billingDetails: {
-      // We collect the cardholder name ourselves (themed field below) and pass
-      // it to billing_details on confirm, so tell the Element not to render it.
-      name: 'never',
+      name: 'never', // collected by our themed field, passed on confirm
       email: 'never',
       phone: 'never',
       address: {
@@ -51,76 +58,68 @@ const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
   },
 };
 
-const PAYMENT_ELEMENT_OPTIONS_SRC = `const options = {
-  // 'tabs' keeps the method selector (Card + wallets) at the top
-  layout: { type: 'tabs' },
-  wallets: {
-    applePay: 'auto',   // ← Apple Pay (Safari + registered domain)
-    googlePay: 'auto',  // ← Google Pay (Chrome)
-  },
-  fields: {
-    billingDetails: {
-      // Cardholder name collected alongside and passed to
-      // billing_details.name on confirm.
-      name: 'never',
-      address: {
-        country: 'auto',      // ← "Country" dropdown
-        postalCode: 'never',  // ← hide ZIP
-      },
-    },
-  },
-};
-
-<PaymentElement options={options} />`;
+const PAYMENT_ELEMENT_OPTIONS_SRC = `// Custom method selector (Card / Google Pay) sits on top.
+// Card path — themed name field + a card-only Payment Element:
+<ExpressCheckoutElement />   // real Google Pay / Apple Pay button
+<label>Cardholder name</label><input />   // → billing_details.name
+<PaymentElement options={{
+  wallets: { applePay: 'never', googlePay: 'never' },
+  fields: { billingDetails: {
+    name: 'never',
+    address: { country: 'auto', postalCode: 'never' },
+  }},
+}} />`;
 
 /* ─────────────────────────────────────────────────────
    The payment form — a plain PaymentElement + pay button.
    ───────────────────────────────────────────────────── */
 
+type WalletAvail = { googlePay: boolean; applePay: boolean };
+
 function MockupForm({ amount }: { amount: number }) {
   const stripe = useStripe();
   const elements = useElements();
+  const [method, setMethod] = useState<'card' | 'wallet'>('card');
+  const [wallets, setWallets] = useState<WalletAvail>({ googlePay: false, applePay: false });
+  const [cardholderName, setCardholderName] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
-  const [cardholderName, setCardholderName] = useState('');
-  // Which method is selected in the Payment Element ('card', 'google_pay', …).
-  // Drives whether we prompt for the cardholder name (card only).
-  const [selectedType, setSelectedType] = useState<string>('card');
-  const isCard = selectedType === 'card';
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  const anyWallet = wallets.googlePay || wallets.applePay;
+  const walletLabel = wallets.googlePay ? 'Google Pay' : wallets.applePay ? 'Apple Pay' : 'Digital wallet';
+
+  async function confirm(withName: boolean) {
     if (!stripe || !elements) return;
-
-    setProcessing(true);
-    setError(null);
-
     const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: window.location.href,
-        // The cardholder name isn't collected inside the Element, so we supply
-        // it here — Stripe merges it into the PaymentMethod's billing details.
-        payment_method_data: {
-          billing_details: { name: cardholderName || undefined },
-        },
+        ...(withName
+          ? { payment_method_data: { billing_details: { name: cardholderName || undefined } } }
+          : {}),
       },
       redirect: 'if_required',
     });
-
     if (stripeError) {
       setError(stripeError.message ?? 'Something went wrong.');
-      setProcessing(false);
       return;
     }
+    if (paymentIntent?.status === 'succeeded') setSucceeded(true);
+    else setError(`Unexpected status: ${paymentIntent?.status ?? 'unknown'}`);
+  }
 
-    if (paymentIntent?.status === 'succeeded') {
-      setSucceeded(true);
-    } else {
-      setError(`Unexpected status: ${paymentIntent?.status ?? 'unknown'}`);
-    }
+  async function handleCardSubmit(e: FormEvent) {
+    e.preventDefault();
+    setProcessing(true);
+    setError(null);
+    await confirm(true);
     setProcessing(false);
+  }
+
+  function handleWalletReady(e: StripeExpressCheckoutElementReadyEvent) {
+    const pm = e.availablePaymentMethods;
+    setWallets({ googlePay: !!pm?.googlePay, applePay: !!pm?.applePay });
   }
 
   if (succeeded) {
@@ -137,72 +136,115 @@ function MockupForm({ amount }: { amount: number }) {
     );
   }
 
+  const tabBase =
+    'flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all';
+  const tabOn = 'border-axa-blue bg-axa-blue/[0.04] text-axa-blue shadow-[0_0_0_1px_#00008F]';
+  const tabOff = 'border-[#DCDCE4] bg-white text-axa-dark hover:border-[#C7C7D4]';
+
   return (
-    <form onSubmit={handleSubmit}>
-      {/* Payment section: an outer blue-bordered container wraps the Payment
-          Element (tabs selector + fields) and — only when Card is the selected
-          method — our themed cardholder-name field, so the two read as one
-          control. The name field lives just outside Stripe's iframe (Stripe
-          doesn't expose a name field in the card form), and hides when a wallet
-          is selected since wallets carry their own cardholder name. */}
-      <p className="text-sm font-semibold text-axa-dark mb-3">
-        {isCard ? 'Enter your card details' : 'Payment method'}
-      </p>
+    <div>
+      <p className="text-sm font-semibold text-axa-dark mb-3">Payment method</p>
 
-      <div className="rounded-xl border border-[#00008F] shadow-[0_0_0_1px_#00008F] p-4 space-y-4">
-        {isCard && (
-          <div>
-            <label htmlFor="cardholder-name" className="block text-[13px] font-medium text-axa-dark mb-1.5">
-              Cardholder name
-            </label>
-            <input
-              id="cardholder-name"
-              type="text"
-              value={cardholderName}
-              onChange={(e) => setCardholderName(e.target.value)}
-              placeholder="Name as it appears on the card"
-              autoComplete="cc-name"
-              className="w-full rounded-[10px] border border-[#DCDCE4] bg-white px-3.5 py-3 text-[15px] text-axa-dark placeholder:text-axa-grey-400 outline-none transition focus:border-axa-blue focus:ring-[3px] focus:ring-axa-blue/10"
-            />
-          </div>
+      {/* Custom method selector. The wallet tab only appears once the Express
+          Checkout Element reports the wallet as available on this device. */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          onClick={() => setMethod('card')}
+          className={`${tabBase} ${method === 'card' ? tabOn : tabOff}`}
+        >
+          <CreditCard size={18} />
+          Card
+          <span className="ml-auto flex items-center gap-1">
+            <span className="w-6 h-4 rounded-[3px] bg-blue-50 border border-blue-100 text-[7px] font-bold text-blue-700 flex items-center justify-center">
+              VISA
+            </span>
+            <span className="w-6 h-4 rounded-[3px] bg-orange-50 border border-orange-100" />
+          </span>
+        </button>
+
+        {anyWallet && (
+          <button
+            type="button"
+            onClick={() => setMethod('wallet')}
+            className={`${tabBase} ${method === 'wallet' ? tabOn : tabOff}`}
+          >
+            {walletLabel}
+          </button>
         )}
+      </div>
 
-        <PaymentElement
-          options={PAYMENT_ELEMENT_OPTIONS}
-          onChange={(e) => setSelectedType(e.value.type)}
+      {/* Cardholder name — directly UNDER the selector, above the card fields. */}
+      {method === 'card' && (
+        <form onSubmit={handleCardSubmit} className="mt-4">
+          <div className="rounded-xl border border-[#00008F] shadow-[0_0_0_1px_#00008F] p-4 space-y-4">
+            <div>
+              <label htmlFor="cardholder-name" className="block text-[13px] font-medium text-axa-dark mb-1.5">
+                Cardholder name
+              </label>
+              <input
+                id="cardholder-name"
+                type="text"
+                value={cardholderName}
+                onChange={(e) => setCardholderName(e.target.value)}
+                placeholder="Name as it appears on the card"
+                autoComplete="cc-name"
+                className="w-full rounded-[10px] border border-[#DCDCE4] bg-white px-3.5 py-3 text-[15px] text-axa-dark placeholder:text-axa-grey-400 outline-none transition focus:border-axa-blue focus:ring-[3px] focus:ring-axa-blue/10"
+              />
+            </div>
+
+            <PaymentElement options={PAYMENT_ELEMENT_OPTIONS} />
+          </div>
+
+          {error && (
+            <div className="mt-4 flex items-start gap-2.5 text-axa-red text-sm bg-red-50 border border-red-200 p-3 rounded-lg">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!stripe || processing}
+            className="mt-6 w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-axa-blue text-white hover:bg-axa-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {processing ? (
+              <>
+                <Loader2 className="animate-spin" size={18} />
+                Processing…
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={18} />
+                Pay {formatCurrency(amount)}
+              </>
+            )}
+          </button>
+        </form>
+      )}
+
+      {method === 'wallet' && (
+        <p className="mt-4 text-sm text-axa-grey-600 text-center">
+          Confirm your {formatCurrency(amount)} payment with {walletLabel} below.
+        </p>
+      )}
+
+      {/* Express Checkout Element — always mounted (clipped when Card is active)
+          so it can report wallet availability and render the real wallet button
+          when the wallet tab is selected. */}
+      <div className={method === 'wallet' ? 'mt-4' : 'h-0 overflow-hidden'} aria-hidden={method !== 'wallet'}>
+        <ExpressCheckoutElement
+          onReady={handleWalletReady}
+          onConfirm={() => confirm(false)}
+          options={{ buttonHeight: 48 }}
         />
       </div>
 
-      {error && (
-        <div className="mt-4 flex items-start gap-2.5 text-axa-red text-sm bg-red-50 border border-red-200 p-3 rounded-lg">
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <button
-        type="submit"
-        disabled={!stripe || processing}
-        className="mt-6 w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-axa-blue text-white hover:bg-axa-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {processing ? (
-          <>
-            <Loader2 className="animate-spin" size={18} />
-            Processing…
-          </>
-        ) : (
-          <>
-            <ShieldCheck size={18} />
-            Pay {formatCurrency(amount)}
-          </>
-        )}
-      </button>
-
-      <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-axa-grey-400">
+      <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-axa-grey-400">
         <Lock size={11} />
-        Secured by Stripe · this entire form is Stripe Elements
+        Secured by Stripe · Payment Element + Express Checkout Element
       </p>
-    </form>
+    </div>
   );
 }
 
@@ -211,10 +253,10 @@ function MockupForm({ amount }: { amount: number }) {
    ───────────────────────────────────────────────────── */
 
 const MAPPING: { label: string; how: string }[] = [
-  { label: 'Method selector at the top (Card + wallets)', how: "layout: { type: 'tabs' }" },
-  { label: 'Apple Pay & Google Pay options', how: "wallets.applePay / googlePay: 'auto'" },
-  { label: 'Cardholder name — only when Card is selected', how: 'themed field → billing_details.name; toggled on element onChange' },
-  { label: 'Country dropdown, no ZIP', how: "address.country: 'auto', postalCode: 'never'" },
+  { label: 'Card / Google Pay method selector at the top', how: 'custom tabs → card-only Payment Element vs Express Checkout Element' },
+  { label: 'Google Pay / Apple Pay button', how: 'Express Checkout Element (only shows available wallets)' },
+  { label: 'Cardholder name — under the selector, card only', how: 'themed field → billing_details.name on confirm' },
+  { label: 'Card number / expiry / CVC / Country', how: "Payment Element (card only, address.country: 'auto', postalCode: 'never')" },
   { label: '“Save my payment information” checkbox', how: 'CustomerSession · payment_method_save: enabled' },
   { label: 'AXA blue accents, fonts, spacing, radii', how: 'Appearance API (theme + variables + rules)' },
 ];
@@ -230,11 +272,12 @@ function ProofPanel() {
           Mapping the design to Stripe Elements
         </h2>
         <p className="mt-2 text-sm text-axa-grey-700 leading-relaxed">
-          Here’s a reference implementation to help the team scope this together. The form on the left
-          is a single
-          <code className="mx-1 px-1.5 py-0.5 rounded bg-axa-grey-100 text-axa-dark text-[13px]">&lt;PaymentElement /&gt;</code>
-          configured with the object below and themed with the Appearance API — each part of the design
-          lines up with a documented option.
+          Here’s a reference implementation to help the team scope this together. A custom method
+          selector sits on top; the card path renders our themed name field above a card-only
+          <code className="mx-1 px-1.5 py-0.5 rounded bg-axa-grey-100 text-axa-dark text-[13px]">&lt;PaymentElement /&gt;</code>,
+          and the wallet path uses a real
+          <code className="mx-1 px-1.5 py-0.5 rounded bg-axa-grey-100 text-axa-dark text-[13px]">&lt;ExpressCheckoutElement /&gt;</code>.
+          Everything is themed with the Appearance API.
         </p>
       </div>
 
