@@ -8,6 +8,7 @@ import quoteRouter from './routes/quote.js';
 import checkoutRouter from './routes/checkout.js';
 import paymentIntentRouter from './routes/payment-intent.js';
 import walletRouter from './routes/wallet.js';
+import showcaseRouter from './routes/showcase.js';
 import { getDemoCustomerId } from './services/demo-customer.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +34,7 @@ app.use('/api', quoteRouter);
 app.use('/api', checkoutRouter);
 app.use('/api', paymentIntentRouter);
 app.use('/api', walletRouter);
+app.use('/api', showcaseRouter);
 
 // In production, serve the built client files
 if (isProduction) {

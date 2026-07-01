@@ -12,4 +12,5 @@ export const ROUTES = {
   ELEMENTS_CONFIRMATION: '/confirmation/elements',
   CUSTOM_CONFIRMATION: '/confirmation/custom',
   MYAXA_WALLET: '/myaxa/wallet',
+  SHOWCASE: '/pay/showcase',
 } as const;

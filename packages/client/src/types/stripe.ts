@@ -41,3 +41,9 @@ export interface WalletSetupCheckoutSessionResponse {
   clientSecret: string;
   customerId: string;
 }
+
+export interface ShowcaseIntentResponse {
+  clientSecret: string;
+  customerSessionClientSecret: string;
+  amount: number;
+}

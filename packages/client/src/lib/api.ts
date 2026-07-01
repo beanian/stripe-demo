@@ -6,6 +6,7 @@ import type {
   SessionStatusResponse,
   WalletResponse,
   WalletSetupCheckoutSessionResponse,
+  ShowcaseIntentResponse,
 } from '../types/stripe';
 
 const API_BASE = '/api';
@@ -89,4 +90,8 @@ export function detachCard(paymentMethodId: string): Promise<{ ok: boolean; deta
     method: 'POST',
     body: JSON.stringify({ paymentMethodId }),
   });
+}
+
+export function createShowcaseIntent(): Promise<ShowcaseIntentResponse> {
+  return request<ShowcaseIntentResponse>('/create-showcase-intent', { method: 'POST' });
 }
