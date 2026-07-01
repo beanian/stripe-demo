@@ -24,35 +24,27 @@ export const mockupAppearance: Appearance = {
     spacingGridRow: '16px',
   },
   rules: {
-    /* Accordion item — flattened so it blends into our own blue-bordered
-       container (which wraps the cardholder-name field + the Element together).
-       No inner border/padding avoids a box-in-box. */
-    '.AccordionItem': {
-      border: 'none',
-      borderRadius: '0',
-      padding: '0',
+    /* Tabs — the payment-method selector (Card + wallets) sits at the top of
+       the Element, inside our blue-bordered container. Keep them clean and
+       on-brand (AXA blue when selected). */
+    '.Tab': {
+      border: '1px solid #DCDCE4',
+      backgroundColor: '#FFFFFF',
       boxShadow: 'none',
-      backgroundColor: 'transparent',
     },
-    '.AccordionItem--selected': {
-      border: 'none',
-      boxShadow: 'none',
-      backgroundColor: 'transparent',
+    '.Tab:hover': {
+      border: '1px solid #C7C7D4',
     },
-
-    /* Radio bullet — AXA blue when selected */
-    '.RadioIcon': {
-      width: '20px',
+    '.Tab--selected': {
+      border: '1px solid #00008F',
+      backgroundColor: 'rgba(0, 0, 143, 0.04)',
+      boxShadow: '0 0 0 1px #00008F',
     },
-    '.RadioIconOuter': {
-      stroke: '#C7C7D4',
-      strokeWidth: '1.5',
+    '.TabIcon--selected': {
+      color: '#00008F',
     },
-    '.RadioIconOuter--checked': {
-      stroke: '#00008F',
-    },
-    '.RadioIconInner': {
-      fill: '#00008F',
+    '.TabLabel--selected': {
+      color: '#00008F',
     },
 
     /* Inputs — soft grey, generous padding to match the mockup fields */

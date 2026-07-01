@@ -28,12 +28,10 @@ function formatCurrency(amount: number): string {
    proof panel — what you see rendered IS what's shown here.
    ───────────────────────────────────────────────────── */
 const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
-  layout: {
-    type: 'accordion',
-    radios: true,
-    spacedAccordionItems: true,
-    defaultCollapsed: false,
-  },
+  // Tabs put the payment-method selector at the TOP (wallets included), so a
+  // wallet never gets stranded below the card fields the way it does in the
+  // accordion layout (which expands the selected method's fields inline).
+  layout: { type: 'tabs' },
   wallets: {
     applePay: 'auto',
     googlePay: 'auto',
@@ -42,8 +40,6 @@ const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
     billingDetails: {
       // We collect the cardholder name ourselves (themed field below) and pass
       // it to billing_details on confirm, so tell the Element not to render it.
-      // Alternatively, enable name collection in the Stripe Dashboard and set
-      // this to 'auto' to have the Element render it natively.
       name: 'never',
       email: 'never',
       phone: 'never',
@@ -56,20 +52,16 @@ const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
 };
 
 const PAYMENT_ELEMENT_OPTIONS_SRC = `const options = {
-  layout: {
-    type: 'accordion',
-    radios: true,
-    spacedAccordionItems: true,
-  },
+  // 'tabs' keeps the method selector (Card + wallets) at the top
+  layout: { type: 'tabs' },
   wallets: {
-    applePay: 'auto',   // ← "Apple Pay" row
-    googlePay: 'auto',  // ← "Google Pay" row
+    applePay: 'auto',   // ← Apple Pay (Safari + registered domain)
+    googlePay: 'auto',  // ← Google Pay (Chrome)
   },
   fields: {
     billingDetails: {
       // Cardholder name collected alongside and passed to
-      // billing_details.name on confirm (or set 'auto' + enable
-      // name collection in the Dashboard to render it in-element).
+      // billing_details.name on confirm.
       name: 'never',
       address: {
         country: 'auto',      // ← "Country" dropdown
@@ -92,6 +84,10 @@ function MockupForm({ amount }: { amount: number }) {
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
   const [cardholderName, setCardholderName] = useState('');
+  // Which method is selected in the Payment Element ('card', 'google_pay', …).
+  // Drives whether we prompt for the cardholder name (card only).
+  const [selectedType, setSelectedType] = useState<string>('card');
+  const isCard = selectedType === 'card';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -143,29 +139,38 @@ function MockupForm({ amount }: { amount: number }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      {/* One unified "card details" block: an outer blue-bordered container wraps
-          BOTH our themed name field and the Payment Element. The Element's own
-          accordion border is flattened via the Appearance API so there's no
-          box-in-box — the single blue border reads as one control. */}
-      <p className="text-sm font-semibold text-axa-dark mb-3">Enter your card details</p>
+      {/* Payment section: an outer blue-bordered container wraps the Payment
+          Element (tabs selector + fields) and — only when Card is the selected
+          method — our themed cardholder-name field, so the two read as one
+          control. The name field lives just outside Stripe's iframe (Stripe
+          doesn't expose a name field in the card form), and hides when a wallet
+          is selected since wallets carry their own cardholder name. */}
+      <p className="text-sm font-semibold text-axa-dark mb-3">
+        {isCard ? 'Enter your card details' : 'Payment method'}
+      </p>
 
       <div className="rounded-xl border border-[#00008F] shadow-[0_0_0_1px_#00008F] p-4 space-y-4">
-        <div>
-          <label htmlFor="cardholder-name" className="block text-[13px] font-medium text-axa-dark mb-1.5">
-            Cardholder name
-          </label>
-          <input
-            id="cardholder-name"
-            type="text"
-            value={cardholderName}
-            onChange={(e) => setCardholderName(e.target.value)}
-            placeholder="Name as it appears on the card"
-            autoComplete="cc-name"
-            className="w-full rounded-[10px] border border-[#DCDCE4] bg-white px-3.5 py-3 text-[15px] text-axa-dark placeholder:text-axa-grey-400 outline-none transition focus:border-axa-blue focus:ring-[3px] focus:ring-axa-blue/10"
-          />
-        </div>
+        {isCard && (
+          <div>
+            <label htmlFor="cardholder-name" className="block text-[13px] font-medium text-axa-dark mb-1.5">
+              Cardholder name
+            </label>
+            <input
+              id="cardholder-name"
+              type="text"
+              value={cardholderName}
+              onChange={(e) => setCardholderName(e.target.value)}
+              placeholder="Name as it appears on the card"
+              autoComplete="cc-name"
+              className="w-full rounded-[10px] border border-[#DCDCE4] bg-white px-3.5 py-3 text-[15px] text-axa-dark placeholder:text-axa-grey-400 outline-none transition focus:border-axa-blue focus:ring-[3px] focus:ring-axa-blue/10"
+            />
+          </div>
+        )}
 
-        <PaymentElement options={PAYMENT_ELEMENT_OPTIONS} />
+        <PaymentElement
+          options={PAYMENT_ELEMENT_OPTIONS}
+          onChange={(e) => setSelectedType(e.value.type)}
+        />
       </div>
 
       {error && (
@@ -206,9 +211,9 @@ function MockupForm({ amount }: { amount: number }) {
    ───────────────────────────────────────────────────── */
 
 const MAPPING: { label: string; how: string }[] = [
-  { label: 'Card / Google Pay / Apple Pay radio rows', how: "layout.type: 'accordion' + radios: true" },
+  { label: 'Method selector at the top (Card + wallets)', how: "layout: { type: 'tabs' }" },
   { label: 'Apple Pay & Google Pay options', how: "wallets.applePay / googlePay: 'auto'" },
-  { label: 'Cardholder name field', how: 'themed field → billing_details.name on confirm' },
+  { label: 'Cardholder name — only when Card is selected', how: 'themed field → billing_details.name; toggled on element onChange' },
   { label: 'Country dropdown, no ZIP', how: "address.country: 'auto', postalCode: 'never'" },
   { label: '“Save my payment information” checkbox', how: 'CustomerSession · payment_method_save: enabled' },
   { label: 'AXA blue accents, fonts, spacing, radii', how: 'Appearance API (theme + variables + rules)' },
