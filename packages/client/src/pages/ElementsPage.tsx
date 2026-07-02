@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
+import { CheckoutElementsProvider } from '@stripe/react-stripe-js/checkout';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { useQuote } from '../contexts/QuoteContext';
-import { createPaymentIntent, createSepaIntent } from '../lib/api';
+import { createElementsSession, createSepaSession } from '../lib/api';
 import { STRIPE_PUBLISHABLE_KEY, QUOTE_ID } from '../lib/constants';
 import { axaAppearance } from '../lib/stripe-appearance';
 import StepIndicator from '../components/shared/StepIndicator';
@@ -26,9 +26,8 @@ export default function ElementsPage() {
   const { quote, loading: quoteLoading, schedule } = useQuote();
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
-  const [customerSessionSecret, setCustomerSessionSecret] = useState<string | null>(null);
   const [sepaClientSecret, setSepaClientSecret] = useState<string | null>(null);
   const [confirmSepa, setConfirmSepa] = useState<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,17 +39,16 @@ export default function ElementsPage() {
     setInitializing(true);
 
     const promises: Promise<void>[] = [
-      createPaymentIntent(QUOTE_ID, schedule).then((data) => {
+      createElementsSession(QUOTE_ID, schedule).then((data) => {
         setClientSecret(data.clientSecret);
-        setPaymentIntentId(data.paymentIntentId);
+        setSessionId(data.sessionId);
         setAmount(data.amount);
-        setCustomerSessionSecret(data.customerSessionClientSecret ?? null);
       }),
     ];
 
     if (schedule === 'deposit') {
       promises.push(
-        createSepaIntent(QUOTE_ID).then((data) => {
+        createSepaSession(QUOTE_ID).then((data) => {
           setSepaClientSecret(data.clientSecret);
         }),
       );
@@ -64,11 +62,12 @@ export default function ElementsPage() {
 
   function handleScheduleUpdate(
     newClientSecret: string,
+    newSessionId: string,
     newAmount: number,
     newSepaSecret?: string | null,
-    newCustomerSessionSecret?: string | null,
   ) {
     setClientSecret(newClientSecret);
+    setSessionId(newSessionId);
     setAmount(newAmount);
     if (newSepaSecret !== undefined) {
       setSepaClientSecret(newSepaSecret);
@@ -76,10 +75,8 @@ export default function ElementsPage() {
     if (!newSepaSecret) {
       setConfirmSepa(null);
     }
-    if (newCustomerSessionSecret !== undefined) {
-      setCustomerSessionSecret(newCustomerSessionSecret);
-    }
   }
+
 
   const handleConfirmReady = useCallback((fn: () => Promise<void>) => {
     setConfirmSepa(() => fn);
@@ -120,10 +117,10 @@ export default function ElementsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main payment column */}
         <div className="lg:col-span-2 space-y-6">
-          {paymentIntentId && (
+          {sessionId && (
             <IntegrationAnchor specId="payment-intent">
               <ScheduleSelector
-                paymentIntentId={paymentIntentId}
+                sessionId={sessionId}
                 onUpdate={handleScheduleUpdate}
               />
             </IntegrationAnchor>
@@ -149,14 +146,14 @@ export default function ElementsPage() {
                 <IntegrationAnchor specId="list-saved-pms" position="top-left">
                   <IntegrationAnchor specId="set-default-card" position="bottom-right">
                     <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
-                      <Elements
+                      <CheckoutElementsProvider
                         stripe={stripePromise}
                         options={{
                           clientSecret,
-                          appearance: axaAppearance,
-                          ...(customerSessionSecret
-                            ? { customerSessionClientSecret: customerSessionSecret }
-                            : {}),
+                          elementsOptions: {
+                            appearance: axaAppearance,
+                            savedPaymentMethod: { enableSave: 'auto', enableRedisplay: 'auto' },
+                          },
                         }}
                         key={clientSecret}
                       >
@@ -167,7 +164,7 @@ export default function ElementsPage() {
                           confirmSepa={confirmSepa}
                           startDate={quote.startDate}
                         />
-                      </Elements>
+                      </CheckoutElementsProvider>
                     </IntegrationAnchor>
                   </IntegrationAnchor>
                 </IntegrationAnchor>
@@ -180,19 +177,19 @@ export default function ElementsPage() {
                 <IntegrationAnchor specId="set-default-card" position="bottom-right">
                   <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
                     <div className="card-elevated p-6 animate-fade-in">
-                      <Elements
+                      <CheckoutElementsProvider
                         stripe={stripePromise}
                         options={{
                           clientSecret,
-                          appearance: axaAppearance,
-                          ...(customerSessionSecret
-                            ? { customerSessionClientSecret: customerSessionSecret }
-                            : {}),
+                          elementsOptions: {
+                            appearance: axaAppearance,
+                            savedPaymentMethod: { enableSave: 'auto', enableRedisplay: 'auto' },
+                          },
                         }}
                         key={clientSecret}
                       >
                         <PaymentForm amount={amount} schedule={schedule} />
-                      </Elements>
+                      </CheckoutElementsProvider>
                     </div>
                   </IntegrationAnchor>
                 </IntegrationAnchor>

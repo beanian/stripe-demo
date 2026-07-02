@@ -2,19 +2,16 @@ export interface CheckoutSessionResponse {
   clientSecret: string;
 }
 
-export interface PaymentIntentResponse {
+export interface ElementsSessionResponse {
   clientSecret: string;
-  paymentIntentId: string;
+  sessionId: string;
   amount: number;
   customerId?: string;
-  customerSessionClientSecret?: string;
 }
 
-export interface UpdatePaymentIntentResponse {
+export interface SepaSessionResponse {
   clientSecret: string;
-  amount: number;
-  customerId?: string;
-  customerSessionClientSecret?: string;
+  sessionId: string;
 }
 
 export interface SessionStatusResponse {
@@ -42,8 +39,7 @@ export interface WalletSetupCheckoutSessionResponse {
   customerId: string;
 }
 
-export interface ShowcaseIntentResponse {
+export interface ShowcaseSessionResponse {
   clientSecret: string;
-  customerSessionClientSecret: string;
   amount: number;
 }

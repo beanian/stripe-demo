@@ -52,76 +52,83 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   },
   {
     id: 'payment-intent',
-    title: 'Create PaymentIntent linked to the customer',
+    title: 'Create Checkout Session (Elements mode) linked to the customer',
     uiAnchor: 'Schedule selector / amount due',
     blurb:
-      'The PaymentIntent is what authorises the charge. To enable saved-card reuse, it must carry the customer ID and request future-usage permission.',
+      'The Checkout Session is what authorises the charge — Stripe\'s recommended API for Elements integrations. To enable saved-card reuse, it must carry the customer ID and request future-usage permission on the underlying PaymentIntent.',
     direction: 'outbound',
-    endpoint: { method: 'POST', path: '/v1/payment_intents' },
-    trigger: 'When the quote page hands off to the payment step, and again on schedule change.',
+    endpoint: { method: 'POST', path: '/v1/checkout/sessions' },
+    trigger: 'When the quote page hands off to the payment step, and again on schedule change (the superseded session is expired and a fresh one minted).',
     requestSample: `{
-  "amount": 84750,
-  "currency": "eur",
+  "ui_mode": "elements",
+  "mode": "payment",
   "customer": "cus_Ua45hy5HUFvTKo",
   "payment_method_types": ["card", "link"],
-  "setup_future_usage": "off_session",
-  "metadata": {
-    "quoteId": "QT-2024-001",
-    "paymentSchedule": "annual"
-  }
+  "line_items": [{
+    "price_data": {
+      "currency": "eur",
+      "product_data": { "name": "Motor Insurance - comprehensive" },
+      "unit_amount": 84750
+    },
+    "quantity": 1
+  }],
+  "payment_intent_data": {
+    "setup_future_usage": "off_session",
+    "metadata": {
+      "quoteId": "QT-2024-001",
+      "paymentSchedule": "annual"
+    }
+  },
+  "saved_payment_method_options": {
+    "allow_redisplay_filters": ["always"]
+  },
+  "return_url": "https://…/confirmation/elements?session_id={CHECKOUT_SESSION_ID}"
 }`,
     responseSample: `{
-  "id": "pi_3PqA8Z2eZvKYlo2C1B3X4Y5Z",
-  "client_secret": "pi_3PqA…_secret_x6Y7",
-  "status": "requires_payment_method",
-  "amount": 84750
+  "id": "cs_test_a1B2c3…",
+  "client_secret": "cs_test_a1B2c3…_secret_x6Y7",
+  "status": "open",
+  "amount_total": 84750
 }`,
     muleSoftRole:
       'Receive premium + schedule from quote engine, validate, call Stripe with the resolved customer ID, return only the client_secret + amount to the browser. Never expose the secret key.',
     axaSystems: ['Quote engine', 'Pricing service', 'API gateway'],
     notes:
-      'setup_future_usage=off_session is the flag that turns a one-shot payment into "and remember this card for later".',
+      'payment_intent_data.setup_future_usage=off_session is the flag that turns a one-shot payment into "and remember this card for later". The session client_secret initialises the whole Checkout SDK in the browser (CheckoutProvider), not an individual element.',
   },
   {
     id: 'customer-session',
-    title: 'Open a short-lived CustomerSession',
+    title: 'Saved-card options on the Checkout Session',
     uiAnchor: 'Card payment form (the saved-card list)',
     blurb:
-      'The CustomerSession is the credential that lets the browser see the customer\'s saved cards — without it, the PaymentElement renders only the blank "new card" form.',
+      'saved_payment_method_options on the Checkout Session is what lets the browser see the customer\'s saved cards — without it (or the customer ID), the PaymentElement renders only the blank "new card" form. This replaces the separate CustomerSession that the raw PaymentIntents integration needed.',
     direction: 'outbound',
-    endpoint: { method: 'POST', path: '/v1/customer_sessions' },
-    trigger: 'Once per checkout page load, alongside the PaymentIntent.',
+    endpoint: { method: 'POST', path: '/v1/checkout/sessions (same call as #2)' },
+    trigger: 'Configured at session creation — no second credential to mint.',
     requestSample: `{
   "customer": "cus_Ua45hy5HUFvTKo",
-  "components": {
-    "payment_element": {
-      "enabled": true,
-      "features": {
-        "payment_method_redisplay": "enabled",
-        "payment_method_save": "enabled",
-        "payment_method_save_usage": "off_session",
-        "payment_method_remove": "enabled"
-      }
-    }
+  "saved_payment_method_options": {
+    "allow_redisplay_filters": ["always"],
+    "payment_method_save": "enabled"
   }
 }`,
     responseSample: `{
-  "client_secret": "_pss_…",
+  "client_secret": "cs_test_a1B2c3…_secret_x6Y7",
   "customer": "cus_Ua45hy5HUFvTKo",
   "expires_at": 1761503800
 }`,
     muleSoftRole:
-      'Issue this call on every checkout entry. The returned client_secret is short-lived (~30 min) and scoped to one customer — safe to send to the browser.',
+      'No extra call: one Checkout Session mint per checkout entry carries both the payment and the saved-card configuration. The returned client_secret is short-lived and scoped to one customer — safe to send to the browser.',
     axaSystems: ['API gateway', 'Session service'],
     notes:
-      'This replaces the older ephemeral-keys pattern. Required for Stripe.js to call /v1/customers/{id}/payment_methods on the user\'s behalf.',
+      'allow_redisplay_filters controls which saved cards redisplay (only PMs with allow_redisplay=always by default). payment_method_save=enabled renders the "save my card" checkbox when setup_future_usage is not forcing a save. This replaces both the CustomerSession and the older ephemeral-keys pattern.',
   },
   {
     id: 'list-saved-pms',
     title: 'Stripe.js fetches the saved cards',
     uiAnchor: 'Saved-card list inside the PaymentElement',
     blurb:
-      'Stripe.js calls the Stripe API directly from the browser using the CustomerSession secret. MuleSoft is not in this path — but the policyholder\'s wallet view in AXA self-serve will need its own copy.',
+      'Stripe.js calls the Stripe API directly from the browser using the Checkout Session client_secret. MuleSoft is not in this path — but the policyholder\'s wallet view in AXA self-serve will need its own copy.',
     direction: 'browser-direct',
     endpoint: { method: 'GET', path: '/v1/customers/{id}/payment_methods' },
     trigger: 'Stripe.js, after the Elements provider mounts.',
@@ -133,7 +140,7 @@ export const INTEGRATION_SPECS: IntegrationSpec[] = [
   ]
 }`,
     muleSoftRole:
-      'In the checkout flow where Stripe Elements renders the PaymentElement with a CustomerSession, this stays browser-direct — MuleSoft just mints the CustomerSession (#3) and stays out of the read path. MuleSoft only proxies this call server-side for channels that DO NOT load Stripe.js for payment: the My AXA wallet list (rendered as custom React, see wallet pin #2), server-rendered policy pages showing "Paid by Visa •4242" as read-only metadata, back-office / call-centre tools, batch reporting. No local wallet table is maintained in either case — Stripe is canonical.',
+      'In the checkout flow where Stripe Elements renders the PaymentElement from a Checkout Session, this stays browser-direct — MuleSoft just mints the session (#2, with the saved-card options in #3) and stays out of the read path. MuleSoft only proxies this call server-side for channels that DO NOT load Stripe.js for payment: the My AXA wallet list (rendered as custom React, see wallet pin #2), server-rendered policy pages showing "Paid by Visa •4242" as read-only metadata, back-office / call-centre tools, batch reporting. No local wallet table is maintained in either case — Stripe is canonical.',
     axaSystems: ['Checkout (Stripe.js path)', 'Mobile app (Stripe SDK path)', 'My AXA wallet list (MuleSoft proxy path)', 'Server-rendered policy pages (MuleSoft proxy path)', 'Call-centre tooling (MuleSoft proxy path)'],
     notes:
       'Default to the browser-direct pattern inside the PaymentElement — it scales better, avoids a MuleSoft hop, and lets Stripe Elements handle card brand icons / expiry warnings. Fall back to a server-side proxy where Stripe.js is not loaded for payment, including the My AXA wallet (where the list is custom AXA UI, not a Stripe Element).',

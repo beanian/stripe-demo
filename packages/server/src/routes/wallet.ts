@@ -66,12 +66,12 @@ router.post('/wallet/create-setup-checkout-session', async (_req: Request, res: 
     // surface for picking existing ones). Checkout in setup mode does not
     // re-render saved cards, so this is the default behaviour.
     //
-    // ui_mode=embedded + redirect_on_completion=never keeps the entire flow
+    // ui_mode=embedded_page + redirect_on_completion=never keeps the entire flow
     // on the wallet page — the client receives an onComplete callback
     // instead of a top-level redirect.
     const session = await stripe.checkout.sessions.create({
       mode: 'setup',
-      ui_mode: 'embedded',
+      ui_mode: 'embedded_page',
       customer: customerId,
       payment_method_types: ['card'],
       currency: 'eur',

@@ -6,7 +6,7 @@ import cors from 'cors';
 import webhookRouter from './routes/webhook.js';
 import quoteRouter from './routes/quote.js';
 import checkoutRouter from './routes/checkout.js';
-import paymentIntentRouter from './routes/payment-intent.js';
+import elementsSessionRouter from './routes/elements-session.js';
 import walletRouter from './routes/wallet.js';
 import showcaseRouter from './routes/showcase.js';
 import { getDemoCustomerId } from './services/demo-customer.js';
@@ -32,7 +32,7 @@ if (!isProduction) {
 // Mount API routes
 app.use('/api', quoteRouter);
 app.use('/api', checkoutRouter);
-app.use('/api', paymentIntentRouter);
+app.use('/api', elementsSessionRouter);
 app.use('/api', walletRouter);
 app.use('/api', showcaseRouter);
 

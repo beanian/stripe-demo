@@ -1,14 +1,16 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import type { StripePaymentElementOptions } from '@stripe/stripe-js';
 import {
-  Elements,
+  CheckoutElementsProvider,
   PaymentElement,
   ExpressCheckoutElement,
-  useStripe,
-  useElements,
-} from '@stripe/react-stripe-js';
-import type { StripeExpressCheckoutElementReadyEvent } from '@stripe/stripe-js';
+  useCheckoutElements,
+} from '@stripe/react-stripe-js/checkout';
+import type {
+  StripeExpressCheckoutElementReadyEvent,
+  StripeExpressCheckoutElementConfirmEvent,
+} from '@stripe/stripe-js';
 import {
   Loader2,
   AlertCircle,
@@ -20,7 +22,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { createShowcaseIntent } from '../lib/api';
+import { createShowcaseSession } from '../lib/api';
 import { STRIPE_PUBLISHABLE_KEY, ROUTES } from '../lib/constants';
 import { mockupAppearance } from '../lib/stripe-appearance-mockup';
 
@@ -35,16 +37,13 @@ function formatCurrency(amount: number): string {
    Kept as a named const so we can render it verbatim in the
    proof panel — what you see rendered IS what's shown here.
    ───────────────────────────────────────────────────── */
-// Card-only Payment Element: wallets are handled separately by the custom
-// selector + Express Checkout Element, so the card path renders just the card
-// fields. This lets our cardholder-name field sit directly under the method
-// selector, above the card number — exactly the mockup order.
+// Card-only Payment Element: wallets live in the Express Checkout Element
+// (in the Checkout Sessions integration the Payment Element doesn't render
+// wallet buttons — they're express-checkout-only), so the card path renders
+// just the card fields. This lets our cardholder-name field sit directly
+// under the method selector, above the card number — exactly the mockup order.
 const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = {
-  layout: { type: 'accordion', radios: false, spacedAccordionItems: false },
-  wallets: {
-    applePay: 'never',
-    googlePay: 'never',
-  },
+  layout: { type: 'accordion', radios: 'never', spacedAccordionItems: false },
   fields: {
     billingDetails: {
       name: 'never', // collected by our themed field, passed on confirm
@@ -77,8 +76,8 @@ const PAYMENT_ELEMENT_OPTIONS_SRC = `// Custom method selector (Card / Google Pa
 type WalletAvail = { googlePay: boolean; applePay: boolean };
 
 function MockupForm({ amount }: { amount: number }) {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckoutElements();
+  const checkout = checkoutState.type === 'success' ? checkoutState.checkout : null;
   const [method, setMethod] = useState<'card' | 'wallet'>('card');
   const [wallets, setWallets] = useState<WalletAvail>({ googlePay: false, applePay: false });
   const [cardholderName, setCardholderName] = useState('');
@@ -89,31 +88,37 @@ function MockupForm({ amount }: { amount: number }) {
   const anyWallet = wallets.googlePay || wallets.applePay;
   const walletLabel = wallets.googlePay ? 'Google Pay' : wallets.applePay ? 'Apple Pay' : 'Digital wallet';
 
-  async function confirm(withName: boolean) {
-    if (!stripe || !elements) return;
-    const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: window.location.href,
-        ...(withName
-          ? { payment_method_data: { billing_details: { name: cardholderName || undefined } } }
-          : {}),
-      },
+  async function confirm(opts: {
+    withName?: boolean;
+    expressEvent?: StripeExpressCheckoutElementConfirmEvent;
+  }) {
+    if (!checkout) return;
+    // Cardholder name rides on the session's billing contact — preserve any
+    // address the Payment Element has already collected (e.g. country).
+    const result = await checkout.confirm({
       redirect: 'if_required',
+      ...(opts.withName && cardholderName
+        ? {
+            billingAddress: {
+              name: cardholderName,
+              address: checkout.billingAddress?.address ?? { country: 'IE' },
+            },
+          }
+        : {}),
+      ...(opts.expressEvent ? { expressCheckoutConfirmEvent: opts.expressEvent } : {}),
     });
-    if (stripeError) {
-      setError(stripeError.message ?? 'Something went wrong.');
+    if (result.type === 'error') {
+      setError(result.error.message ?? 'Something went wrong.');
       return;
     }
-    if (paymentIntent?.status === 'succeeded') setSucceeded(true);
-    else setError(`Unexpected status: ${paymentIntent?.status ?? 'unknown'}`);
+    setSucceeded(true);
   }
 
   async function handleCardSubmit(e: FormEvent) {
     e.preventDefault();
     setProcessing(true);
     setError(null);
-    await confirm(true);
+    await confirm({ withName: true });
     setProcessing(false);
   }
 
@@ -205,7 +210,7 @@ function MockupForm({ amount }: { amount: number }) {
 
           <button
             type="submit"
-            disabled={!stripe || processing}
+            disabled={processing}
             className="mt-6 w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-axa-blue text-white hover:bg-axa-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {processing ? (
@@ -235,8 +240,15 @@ function MockupForm({ amount }: { amount: number }) {
       <div className={method === 'wallet' ? 'mt-4' : 'h-0 overflow-hidden'} aria-hidden={method !== 'wallet'}>
         <ExpressCheckoutElement
           onReady={handleWalletReady}
-          onConfirm={() => confirm(false)}
-          options={{ buttonHeight: 48 }}
+          onConfirm={(event) => confirm({ expressEvent: event })}
+          options={{
+            buttonHeight: 48,
+            buttonTheme: undefined,
+            buttonType: undefined,
+            layout: undefined,
+            paymentMethodOrder: undefined,
+            paymentMethods: undefined,
+          }}
         />
       </div>
 
@@ -257,7 +269,7 @@ const MAPPING: { label: string; how: string }[] = [
   { label: 'Google Pay / Apple Pay button', how: 'Express Checkout Element (only shows available wallets)' },
   { label: 'Cardholder name — under the selector, card only', how: 'themed field → billing_details.name on confirm' },
   { label: 'Card number / expiry / CVC / Country', how: "Payment Element (card only, address.country: 'auto', postalCode: 'never')" },
-  { label: '“Save my payment information” checkbox', how: 'CustomerSession · payment_method_save: enabled' },
+  { label: '“Save my payment information” checkbox', how: 'Checkout Session · saved_payment_method_options.payment_method_save: enabled' },
   { label: 'AXA blue accents, fonts, spacing, radii', how: 'Appearance API (theme + variables + rules)' },
 ];
 
@@ -370,19 +382,18 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 export default function MockupShowcasePage() {
   const navigate = useNavigate();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [customerSessionSecret, setCustomerSessionSecret] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    createShowcaseIntent()
+    createShowcaseSession()
       .then((data) => {
         setClientSecret(data.clientSecret);
-        setCustomerSessionSecret(data.customerSessionClientSecret);
         setAmount(data.amount);
       })
       .catch((err) => setError((err as Error).message));
   }, []);
+
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -429,19 +440,21 @@ export default function MockupShowcasePage() {
                 <span className="ml-3 text-sm text-axa-grey-700">Loading payment form…</span>
               </div>
             ) : (
-              <Elements
+              <CheckoutElementsProvider
                 stripe={stripePromise}
                 options={{
                   clientSecret,
-                  appearance: mockupAppearance,
-                  ...(customerSessionSecret
-                    ? { customerSessionClientSecret: customerSessionSecret }
-                    : {}),
+                  elementsOptions: {
+                    appearance: mockupAppearance,
+                    // Mockup parity: show the save checkbox but keep the form
+                    // a clean new-card entry — no saved-card list.
+                    savedPaymentMethod: { enableSave: 'auto', enableRedisplay: 'never' },
+                  },
                 }}
                 key={clientSecret}
               >
                 <MockupForm amount={amount} />
-              </Elements>
+              </CheckoutElementsProvider>
             )}
           </PhoneFrame>
 

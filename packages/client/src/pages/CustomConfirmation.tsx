@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useQuote } from '../contexts/QuoteContext';
+import { getSessionStatus } from '../lib/api';
 import { ROUTES } from '../lib/constants';
 
 function formatCurrency(amount: number): string {
@@ -24,14 +26,50 @@ export default function CustomConfirmation() {
   const navigate = useNavigate();
   const { quote, schedule } = useQuote();
 
-  const redirectStatus = searchParams.get('redirect_status');
+  const sessionId = searchParams.get('session_id');
   const pbiMethod = searchParams.get('pbi_method') as 'card' | 'sepa' | null;
-  const succeeded = redirectStatus === 'succeeded';
+  const [status, setStatus] = useState<'verifying' | 'succeeded' | 'failed'>('verifying');
+  const [statusDetail, setStatusDetail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setStatus('failed');
+      setStatusDetail('missing session_id');
+      return;
+    }
+    getSessionStatus(sessionId)
+      .then((data) => {
+        if (data.status === 'complete') {
+          setStatus('succeeded');
+        } else {
+          setStatus('failed');
+          setStatusDetail(data.status);
+        }
+      })
+      .catch(() => {
+        setStatus('failed');
+        setStatusDetail('could not verify session');
+      });
+  }, [sessionId]);
+
   const isDeposit = schedule === 'deposit';
   const isSepaPbi = isDeposit && pbiMethod === 'sepa';
   const isCardPbi = isDeposit && pbiMethod === 'card';
 
-  if (!succeeded) {
+  if (status === 'verifying') {
+    return (
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 -mb-8">
+        <div className="min-h-screen bg-axa-grey-100 custom-bg-pattern flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="custom-spinner" />
+            <p className="text-sm text-axa-grey-500">Confirming your payment...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'failed') {
     return (
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 -mb-8">
         <div className="min-h-screen bg-axa-grey-100 custom-bg-pattern flex items-center justify-center">
@@ -41,7 +79,7 @@ export default function CustomConfirmation() {
             </div>
             <h1 className="mt-6 text-2xl font-bold text-axa-dark">Payment Not Completed</h1>
             <p className="mt-2 text-axa-grey-500 text-sm">
-              Status: {redirectStatus || 'unknown'}. Please try again or contact support.
+              Status: {statusDetail || 'unknown'}. Please try again or contact support.
             </p>
             <button
               onClick={() => navigate(ROUTES.CUSTOM)}

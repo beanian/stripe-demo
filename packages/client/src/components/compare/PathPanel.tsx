@@ -1,16 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import {
-  EmbeddedCheckoutProvider,
-  EmbeddedCheckout,
-  Elements,
-  PaymentElement,
-} from '@stripe/react-stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+import { CheckoutElementsProvider, PaymentElement } from '@stripe/react-stripe-js/checkout';
 import { Loader2 } from 'lucide-react';
 import PathBadge from '../shared/PathBadge';
 import { axaAppearance } from '../../lib/stripe-appearance';
 import { STRIPE_PUBLISHABLE_KEY, QUOTE_ID } from '../../lib/constants';
-import { createCheckoutSession, createPaymentIntent } from '../../lib/api';
+import { createCheckoutSession, createElementsSession } from '../../lib/api';
 import { useQuote } from '../../contexts/QuoteContext';
 
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
@@ -54,7 +50,7 @@ function PathBContent() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    createPaymentIntent(QUOTE_ID, schedule)
+    createElementsSession(QUOTE_ID, schedule)
       .then(({ clientSecret: cs }) => setClientSecret(cs))
       .catch((err) => setError((err as Error).message));
   }, [schedule]);
@@ -67,15 +63,19 @@ function PathBContent() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="animate-spin text-axa-blue" size={24} />
-        <span className="ml-2 text-sm text-axa-grey-700">Creating payment intent...</span>
+        <span className="ml-2 text-sm text-axa-grey-700">Creating checkout session...</span>
       </div>
     );
   }
 
   return (
-    <Elements stripe={stripePromise} options={{ clientSecret, appearance: axaAppearance }}>
+    <CheckoutElementsProvider
+      stripe={stripePromise}
+      options={{ clientSecret, elementsOptions: { appearance: axaAppearance } }}
+      key={clientSecret}
+    >
       <PathBForm />
-    </Elements>
+    </CheckoutElementsProvider>
   );
 }
 

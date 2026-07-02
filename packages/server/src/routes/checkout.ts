@@ -16,7 +16,7 @@ router.post('/create-checkout-session', async (req: Request, res: Response) => {
     const description = `${quote.vehicleMake} ${quote.vehicleModel} - Full Premium`;
 
     const session = await stripe.checkout.sessions.create({
-      ui_mode: 'embedded',
+      ui_mode: 'embedded_page',
       mode: 'payment',
       customer_email: quote.customerEmail,
       line_items: [

@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { CheckCircle2, AlertCircle, CreditCard, Building2, CalendarDays } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, CreditCard, Building2, CalendarDays } from 'lucide-react';
 import { useQuote } from '../contexts/QuoteContext';
+import { getSessionStatus } from '../lib/api';
 import { ROUTES } from '../lib/constants';
 import StepIndicator from '../components/shared/StepIndicator';
 
@@ -13,18 +15,51 @@ export default function ElementsConfirmation() {
   const navigate = useNavigate();
   const { quote, schedule } = useQuote();
 
-  const redirectStatus = searchParams.get('redirect_status');
-  const succeeded = redirectStatus === 'succeeded';
+  const sessionId = searchParams.get('session_id');
+  const [status, setStatus] = useState<'verifying' | 'succeeded' | 'failed'>('verifying');
+  const [statusDetail, setStatusDetail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setStatus('failed');
+      setStatusDetail('missing session_id');
+      return;
+    }
+    getSessionStatus(sessionId)
+      .then((data) => {
+        if (data.status === 'complete') {
+          setStatus('succeeded');
+        } else {
+          setStatus('failed');
+          setStatusDetail(data.status);
+        }
+      })
+      .catch(() => {
+        setStatus('failed');
+        setStatusDetail('could not verify session');
+      });
+  }, [sessionId]);
+
   const isDeposit = schedule === 'deposit';
 
-  if (!succeeded) {
+  if (status === 'verifying') {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-16 text-center">
+        <StepIndicator currentStep={3} />
+        <Loader2 className="mx-auto animate-spin text-axa-blue" size={48} />
+        <p className="mt-4 text-axa-grey-700">Confirming your payment...</p>
+      </div>
+    );
+  }
+
+  if (status === 'failed') {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center">
         <StepIndicator currentStep={3} />
         <AlertCircle className="mx-auto text-axa-red" size={64} />
         <h1 className="mt-4 text-2xl font-bold text-axa-dark">Payment Not Completed</h1>
         <p className="mt-2 text-axa-grey-700">
-          Status: {redirectStatus || 'unknown'}. Please try again or contact support.
+          Status: {statusDetail || 'unknown'}. Please try again or contact support.
         </p>
         <button
           onClick={() => navigate(ROUTES.ELEMENTS)}

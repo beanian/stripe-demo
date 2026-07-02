@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { PaymentElement, useCheckoutElements } from '@stripe/react-stripe-js/checkout';
 import { Loader2, AlertCircle, CreditCard, ShieldCheck } from 'lucide-react';
-import { ROUTES } from '../../lib/constants';
 import type { PaymentSchedule } from '../../types/quote';
 
 interface PaymentFormProps {
@@ -17,8 +16,8 @@ function formatCurrency(amount: number): string {
 }
 
 export default function PaymentForm({ amount, schedule, remainingBalance, confirmSepa, startDate }: PaymentFormProps) {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckoutElements();
+  const checkout = checkoutState.type === 'success' ? checkoutState.checkout : null;
 
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,8 +26,7 @@ export default function PaymentForm({ amount, schedule, remainingBalance, confir
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-
-    if (!stripe || !elements) return;
+    if (!checkout) return;
 
     setProcessing(true);
     setError(null);
@@ -38,15 +36,12 @@ export default function PaymentForm({ amount, schedule, remainingBalance, confir
         await confirmSepa();
       }
 
-      const { error: stripeError } = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}${ROUTES.ELEMENTS_CONFIRMATION}`,
-        },
-      });
+      // The Checkout Session carries the return_url; on success the browser
+      // is redirected to the confirmation page with ?session_id=...
+      const result = await checkout.confirm();
 
-      if (stripeError) {
-        setError(stripeError.message || 'An unexpected error occurred.');
+      if (result.type === 'error') {
+        setError(result.error.message || 'An unexpected error occurred.');
         setProcessing(false);
       }
     } catch (err) {
@@ -118,7 +113,7 @@ export default function PaymentForm({ amount, schedule, remainingBalance, confir
         {/* Submit button */}
         <button
           type="submit"
-          disabled={!stripe || processing}
+          disabled={!checkout || processing}
           className="mt-4 w-full py-3.5 bg-axa-blue text-white rounded-axa font-semibold text-[15px] hover:bg-axa-blue/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-axa-md hover:shadow-axa-lg"
         >
           {processing ? (

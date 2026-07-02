@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Loader2, CreditCard, CalendarClock } from 'lucide-react';
 import { useQuote } from '../../contexts/QuoteContext';
-import { updatePaymentIntent, createSepaIntent } from '../../lib/api';
+import { updateElementsSession, createSepaSession } from '../../lib/api';
 import { QUOTE_ID } from '../../lib/constants';
 import type { PaymentSchedule } from '../../types/quote';
 
 interface ScheduleSelectorProps {
-  paymentIntentId: string;
+  sessionId: string;
   onUpdate: (
     clientSecret: string,
+    sessionId: string,
     amount: number,
     sepaClientSecret?: string | null,
-    customerSessionClientSecret?: string | null,
   ) => void;
 }
 
@@ -19,7 +19,7 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' }).format(amount);
 }
 
-export default function ScheduleSelector({ paymentIntentId, onUpdate }: ScheduleSelectorProps) {
+export default function ScheduleSelector({ sessionId, onUpdate }: ScheduleSelectorProps) {
   const { quote, schedule, setSchedule } = useQuote();
   const [updating, setUpdating] = useState(false);
 
@@ -29,19 +29,20 @@ export default function ScheduleSelector({ paymentIntentId, onUpdate }: Schedule
     setUpdating(true);
 
     try {
-      const { clientSecret, amount, customerSessionClientSecret } = await updatePaymentIntent(
-        paymentIntentId,
-        newSchedule,
-      );
+      const {
+        clientSecret,
+        sessionId: newSessionId,
+        amount,
+      } = await updateElementsSession(sessionId, newSchedule);
 
       let sepaSecret: string | null = null;
       if (newSchedule === 'deposit') {
-        const sepaData = await createSepaIntent(QUOTE_ID);
+        const sepaData = await createSepaSession(QUOTE_ID);
         sepaSecret = sepaData.clientSecret;
       }
 
       setSchedule(newSchedule);
-      onUpdate(clientSecret, amount, sepaSecret, customerSessionClientSecret ?? null);
+      onUpdate(clientSecret, newSessionId, amount, sepaSecret);
     } catch {
       // revert on error — schedule wasn't changed
     } finally {

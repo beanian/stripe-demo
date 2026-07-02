@@ -1,13 +1,15 @@
 import type { Quote, PaymentSchedule } from '../types/quote';
 import type {
   CheckoutSessionResponse,
-  PaymentIntentResponse,
-  UpdatePaymentIntentResponse,
+  ElementsSessionResponse,
+  SepaSessionResponse,
   SessionStatusResponse,
   WalletResponse,
   WalletSetupCheckoutSessionResponse,
-  ShowcaseIntentResponse,
+  ShowcaseSessionResponse,
 } from '../types/stripe';
+
+export type ElementsFlow = 'elements' | 'custom';
 
 const API_BASE = '/api';
 
@@ -37,28 +39,30 @@ export function createCheckoutSession(
   });
 }
 
-export function createPaymentIntent(
+export function createElementsSession(
   quoteId: string,
   paymentSchedule: PaymentSchedule,
-): Promise<PaymentIntentResponse> {
-  return request<PaymentIntentResponse>('/create-payment-intent', {
+  flow: ElementsFlow = 'elements',
+): Promise<ElementsSessionResponse> {
+  return request<ElementsSessionResponse>('/create-elements-session', {
     method: 'POST',
-    body: JSON.stringify({ quoteId, paymentSchedule }),
+    body: JSON.stringify({ quoteId, paymentSchedule, flow }),
   });
 }
 
-export function updatePaymentIntent(
-  paymentIntentId: string,
+export function updateElementsSession(
+  sessionId: string,
   paymentSchedule: PaymentSchedule,
-): Promise<UpdatePaymentIntentResponse> {
-  return request<UpdatePaymentIntentResponse>('/update-payment-intent', {
+  flow: ElementsFlow = 'elements',
+): Promise<ElementsSessionResponse> {
+  return request<ElementsSessionResponse>('/update-elements-session', {
     method: 'POST',
-    body: JSON.stringify({ paymentIntentId, paymentSchedule }),
+    body: JSON.stringify({ sessionId, paymentSchedule, flow }),
   });
 }
 
-export function createSepaIntent(quoteId: string): Promise<PaymentIntentResponse> {
-  return request<PaymentIntentResponse>('/create-sepa-intent', {
+export function createSepaSession(quoteId: string): Promise<SepaSessionResponse> {
+  return request<SepaSessionResponse>('/create-sepa-session', {
     method: 'POST',
     body: JSON.stringify({ quoteId }),
   });
@@ -92,6 +96,6 @@ export function detachCard(paymentMethodId: string): Promise<{ ok: boolean; deta
   });
 }
 
-export function createShowcaseIntent(): Promise<ShowcaseIntentResponse> {
-  return request<ShowcaseIntentResponse>('/create-showcase-intent', { method: 'POST' });
+export function createShowcaseSession(): Promise<ShowcaseSessionResponse> {
+  return request<ShowcaseSessionResponse>('/create-showcase-session', { method: 'POST' });
 }

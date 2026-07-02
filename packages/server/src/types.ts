@@ -27,12 +27,16 @@ export interface CreateCheckoutSessionRequest {
   paymentSchedule: PaymentSchedule;
 }
 
-export interface CreatePaymentIntentRequest {
+export type ElementsFlow = 'elements' | 'custom';
+
+export interface CreateElementsSessionRequest {
   quoteId: string;
   paymentSchedule: PaymentSchedule;
+  flow?: ElementsFlow;
 }
 
-export interface UpdatePaymentIntentRequest {
-  paymentIntentId: string;
+export interface UpdateElementsSessionRequest {
+  sessionId: string;
   paymentSchedule: PaymentSchedule;
+  flow?: ElementsFlow;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, type FormEvent } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { CheckoutElementsProvider, PaymentElement, useCheckoutElements } from '@stripe/react-stripe-js/checkout';
 import {
   Loader2,
   AlertCircle,
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuote } from '../contexts/QuoteContext';
-import { createPaymentIntent, createSepaIntent, updatePaymentIntent } from '../lib/api';
+import { createElementsSession, createSepaSession, updateElementsSession } from '../lib/api';
 import { STRIPE_PUBLISHABLE_KEY, QUOTE_ID, ROUTES } from '../lib/constants';
 import { customAppearance } from '../lib/stripe-appearance-custom';
 import TestCardsPanel from '../components/shared/TestCardsPanel';
@@ -517,28 +517,21 @@ function CustomSepaForm({
   onConfirmReady: (fn: () => Promise<void>) => void;
   onContinue: () => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [ready, setReady] = useState(false);
+  const checkoutState = useCheckoutElements();
+  const checkout = checkoutState.type === 'success' ? checkoutState.checkout : null;
   const instalmentAmount = quote.remainingBalance / 11;
   const startMonth = getInstalmentStartMonth(quote.startDate);
 
   const confirm = useCallback(async () => {
-    if (!stripe || !elements) throw new Error('SEPA payment not ready');
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: { return_url: window.location.href },
-      redirect: 'if_required',
-    });
-    if (error) throw error;
-  }, [stripe, elements]);
+    if (!checkout) throw new Error('SEPA payment not ready');
+    // SEPA does not redirect — the result comes back in place.
+    const result = await checkout.confirm({ redirect: 'if_required' });
+    if (result.type === 'error') throw new Error(result.error.message);
+  }, [checkout]);
 
   useEffect(() => {
-    if (stripe && elements) {
-      onConfirmReady(confirm);
-      setReady(true);
-    }
-  }, [stripe, elements, confirm, onConfirmReady]);
+    if (checkout) onConfirmReady(confirm);
+  }, [checkout, confirm, onConfirmReady]);
 
   return (
     <div className="custom-step-enter">
@@ -550,23 +543,7 @@ function CustomSepaForm({
       </p>
 
       <div className="custom-glass rounded-2xl p-6">
-        <PaymentElement
-          options={{
-            layout: 'tabs',
-            defaultValues: {
-              billingDetails: {
-                name: quote.customerName,
-                email: quote.customerEmail,
-                address: {
-                  line1: quote.addressLine1,
-                  city: quote.addressCity,
-                  postal_code: quote.addressPostcode,
-                  country: quote.addressCountry,
-                },
-              },
-            },
-          }}
-        />
+        <PaymentElement options={{ layout: 'tabs' }} />
         <p className="mt-5 text-[11px] text-axa-grey-400 leading-relaxed">
           By providing your IBAN and confirming this payment, you authorise AXA Insurance dac and Stripe, our
           payment service provider, to send instructions to your bank to debit your account in accordance with
@@ -598,7 +575,6 @@ function CustomSepaForm({
       <button
         type="button"
         onClick={onContinue}
-        disabled={!ready}
         className="mt-8 w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all custom-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Continue to Card Payment
@@ -625,8 +601,8 @@ function CustomCardForm({
   confirmSepa?: (() => Promise<void>) | null;
   pbiMethod: PbiMethod;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckoutElements();
+  const checkout = checkoutState.type === 'success' ? checkoutState.checkout : null;
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isDeposit = schedule === 'deposit';
@@ -634,7 +610,7 @@ function CustomCardForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!stripe || !elements) return;
+    if (!checkout) return;
 
     setProcessing(true);
     setError(null);
@@ -642,16 +618,17 @@ function CustomCardForm({
     try {
       if (isSepaPbi && confirmSepa) await confirmSepa();
 
-      const returnUrl = new URL(`${window.location.origin}${ROUTES.CUSTOM_CONFIRMATION}`);
-      if (isDeposit) returnUrl.searchParams.set('pbi_method', pbiMethod);
+      // Override the session's return_url so the confirmation page knows the
+      // PBI method. The {CHECKOUT_SESSION_ID} placeholder is substituted by
+      // Stripe on redirect — keep it literal (no URL-encoding).
+      const returnUrl = isDeposit
+        ? `${window.location.origin}${ROUTES.CUSTOM_CONFIRMATION}?session_id={CHECKOUT_SESSION_ID}&pbi_method=${pbiMethod}`
+        : undefined;
 
-      const { error: stripeError } = await stripe.confirmPayment({
-        elements,
-        confirmParams: { return_url: returnUrl.toString() },
-      });
+      const result = await checkout.confirm(returnUrl ? { returnUrl } : undefined);
 
-      if (stripeError) {
-        setError(stripeError.message || 'An unexpected error occurred.');
+      if (result.type === 'error') {
+        setError(result.error.message || 'An unexpected error occurred.');
         setProcessing(false);
       }
     } catch (err) {
@@ -730,7 +707,7 @@ function CustomCardForm({
 
       <button
         type="submit"
-        disabled={!stripe || processing}
+        disabled={!checkout || processing}
         className="mt-6 w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed custom-btn-primary custom-btn-glow"
       >
         {processing ? (
@@ -763,9 +740,8 @@ export default function CustomPage() {
   const { quote, loading: quoteLoading, schedule, setSchedule } = useQuote();
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [amount, setAmount] = useState<number>(0);
-  const [customerSessionSecret, setCustomerSessionSecret] = useState<string | null>(null);
   const [sepaClientSecret, setSepaClientSecret] = useState<string | null>(null);
   const [confirmSepa, setConfirmSepa] = useState<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -784,17 +760,16 @@ export default function CustomPage() {
     setInitializing(true);
 
     const promises: Promise<void>[] = [
-      createPaymentIntent(QUOTE_ID, schedule).then((data) => {
+      createElementsSession(QUOTE_ID, schedule, 'custom').then((data) => {
         setClientSecret(data.clientSecret);
-        setPaymentIntentId(data.paymentIntentId);
+        setSessionId(data.sessionId);
         setAmount(data.amount);
-        setCustomerSessionSecret(data.customerSessionClientSecret ?? null);
       }),
     ];
 
     if (schedule === 'deposit') {
       promises.push(
-        createSepaIntent(QUOTE_ID).then((data) => {
+        createSepaSession(QUOTE_ID).then((data) => {
           setSepaClientSecret(data.clientSecret);
         }),
       );
@@ -810,29 +785,30 @@ export default function CustomPage() {
     setConfirmSepa(() => fn);
   }, []);
 
+
   function goToStep(idx: number) {
     setCurrentStepIdx(idx);
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function handleScheduleSelect(newSchedule: PaymentSchedule) {
-    if (newSchedule !== schedule && paymentIntentId) {
+    if (newSchedule !== schedule && sessionId) {
       setScheduleUpdating(true);
       try {
         const {
           clientSecret: newSecret,
+          sessionId: newSessionId,
           amount: newAmount,
-          customerSessionClientSecret: newSessionSecret,
-        } = await updatePaymentIntent(paymentIntentId, newSchedule);
+        } = await updateElementsSession(sessionId, newSchedule, 'custom');
         let sepaSecret: string | null = null;
         if (newSchedule === 'deposit') {
-          const sepaData = await createSepaIntent(QUOTE_ID);
+          const sepaData = await createSepaSession(QUOTE_ID);
           sepaSecret = sepaData.clientSecret;
         }
         setSchedule(newSchedule);
         setClientSecret(newSecret);
+        setSessionId(newSessionId);
         setAmount(newAmount);
-        setCustomerSessionSecret(newSessionSecret ?? null);
         if (sepaSecret !== undefined) setSepaClientSecret(sepaSecret);
         if (!sepaSecret) setConfirmSepa(null);
       } catch {
@@ -852,7 +828,7 @@ export default function CustomPage() {
     // If switching to SEPA and we don't have a SEPA secret yet, create one
     if (method === 'sepa' && !sepaClientSecret) {
       try {
-        const sepaData = await createSepaIntent(QUOTE_ID);
+        const sepaData = await createSepaSession(QUOTE_ID);
         setSepaClientSecret(sepaData.clientSecret);
       } catch {
         // handled in render
@@ -948,9 +924,25 @@ export default function CustomPage() {
                   onSelect={handlePbiMethodSelect}
                 />
               ) : currentStep === 'sepa' && sepaClientSecret ? (
-                <Elements
+                <CheckoutElementsProvider
                   stripe={stripePromise}
-                  options={{ clientSecret: sepaClientSecret, appearance: customAppearance }}
+                  options={{
+                    clientSecret: sepaClientSecret,
+                    elementsOptions: { appearance: customAppearance },
+                    // Prefill the mandate contact details on the session.
+                    defaultValues: {
+                      email: quote.customerEmail,
+                      billingAddress: {
+                        name: quote.customerName,
+                        address: {
+                          line1: quote.addressLine1,
+                          city: quote.addressCity,
+                          postal_code: quote.addressPostcode,
+                          country: quote.addressCountry,
+                        },
+                      },
+                    },
+                  }}
                   key={sepaClientSecret}
                 >
                   <CustomSepaForm
@@ -958,20 +950,20 @@ export default function CustomPage() {
                     onConfirmReady={handleConfirmReady}
                     onContinue={() => goToStep(currentStepIdx + 1)}
                   />
-                </Elements>
+                </CheckoutElementsProvider>
               ) : currentStep === 'card' ? (
                 <IntegrationAnchor specId="customer-session" position="top-right">
                   <IntegrationAnchor specId="list-saved-pms" position="top-left">
                     <IntegrationAnchor specId="set-default-card" position="bottom-right">
                       <IntegrationAnchor specId="webhook-payment-success" position="bottom-left">
-                        <Elements
+                        <CheckoutElementsProvider
                           stripe={stripePromise}
                           options={{
                             clientSecret,
-                            appearance: customAppearance,
-                            ...(customerSessionSecret
-                              ? { customerSessionClientSecret: customerSessionSecret }
-                              : {}),
+                            elementsOptions: {
+                              appearance: customAppearance,
+                              savedPaymentMethod: { enableSave: 'auto', enableRedisplay: 'auto' },
+                            },
                           }}
                           key={clientSecret}
                         >
@@ -982,7 +974,7 @@ export default function CustomPage() {
                             confirmSepa={confirmSepa}
                             pbiMethod={pbiMethod}
                           />
-                        </Elements>
+                        </CheckoutElementsProvider>
                       </IntegrationAnchor>
                     </IntegrationAnchor>
                   </IntegrationAnchor>

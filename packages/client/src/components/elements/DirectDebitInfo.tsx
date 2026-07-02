@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { CheckoutElementsProvider, PaymentElement, useCheckoutElements } from '@stripe/react-stripe-js/checkout';
 import { Building2 } from 'lucide-react';
 import { STRIPE_PUBLISHABLE_KEY } from '../../lib/constants';
 import { axaAppearance } from '../../lib/stripe-appearance';
@@ -25,30 +25,22 @@ function getInstalmentStartMonth(startDate: string): string {
 }
 
 function SepaForm({ quote, onConfirmReady }: { quote: Quote; onConfirmReady: (fn: () => Promise<void>) => void }) {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckoutElements();
+  const checkout = checkoutState.type === 'success' ? checkoutState.checkout : null;
   const instalmentAmount = quote.remainingBalance / 11;
   const startMonth = getInstalmentStartMonth(quote.startDate);
 
   const confirm = useCallback(async () => {
-    if (!stripe || !elements) throw new Error('SEPA payment not ready');
-
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: window.location.href,
-      },
-      redirect: 'if_required',
-    });
-
-    if (error) throw error;
-  }, [stripe, elements]);
+    if (!checkout) throw new Error('SEPA payment not ready');
+    // SEPA does not redirect — the result comes back in place and the card
+    // payment continues in the same click.
+    const result = await checkout.confirm({ redirect: 'if_required' });
+    if (result.type === 'error') throw new Error(result.error.message);
+  }, [checkout]);
 
   useEffect(() => {
-    if (stripe && elements) {
-      onConfirmReady(confirm);
-    }
-  }, [stripe, elements, confirm, onConfirmReady]);
+    if (checkout) onConfirmReady(confirm);
+  }, [checkout, confirm, onConfirmReady]);
 
   return (
     <div className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
@@ -73,23 +65,7 @@ function SepaForm({ quote, onConfirmReady }: { quote: Quote; onConfirmReady: (fn
       {/* SEPA form card */}
       <div className="ml-5 pl-9 border-l-2 border-axa-grey-200">
         <div className="card-elevated p-5">
-          <PaymentElement
-            options={{
-              layout: 'tabs',
-              defaultValues: {
-                billingDetails: {
-                  name: quote.customerName,
-                  email: quote.customerEmail,
-                  address: {
-                    line1: quote.addressLine1,
-                    city: quote.addressCity,
-                    postal_code: quote.addressPostcode,
-                    country: quote.addressCountry,
-                  },
-                },
-              },
-            }}
-          />
+          <PaymentElement options={{ layout: 'tabs' }} />
 
           <p className="mt-4 text-xs text-axa-grey-500 leading-relaxed">
             By providing your IBAN and confirming this payment, you authorise AXA Insurance dac and Stripe, our
@@ -106,12 +82,28 @@ function SepaForm({ quote, onConfirmReady }: { quote: Quote; onConfirmReady: (fn
 
 export default function DirectDebitInfo({ quote, sepaClientSecret, onConfirmReady }: DirectDebitInfoProps) {
   return (
-    <Elements
+    <CheckoutElementsProvider
       stripe={stripePromise}
-      options={{ clientSecret: sepaClientSecret, appearance: axaAppearance }}
+      options={{
+        clientSecret: sepaClientSecret,
+        elementsOptions: { appearance: axaAppearance },
+        // Prefill the mandate contact details on the session.
+        defaultValues: {
+          email: quote.customerEmail,
+          billingAddress: {
+            name: quote.customerName,
+            address: {
+              line1: quote.addressLine1,
+              city: quote.addressCity,
+              postal_code: quote.addressPostcode,
+              country: quote.addressCountry,
+            },
+          },
+        },
+      }}
       key={sepaClientSecret}
     >
       <SepaForm quote={quote} onConfirmReady={onConfirmReady} />
-    </Elements>
+    </CheckoutElementsProvider>
   );
 }
