@@ -39,8 +39,16 @@ async function attachSeedCards(customerId: string): Promise<void> {
     limit: 20,
   });
 
-  // PaymentElement only redisplays saved cards with allow_redisplay='always'.
-  // PMs attached server-side default to 'unspecified', so promote them.
+  // allow_redisplay='always' is required for redisplay anywhere; PMs attached
+  // server-side default to 'unspecified', so promote them.
+  //
+  // NOTE (Checkout Sessions): these API-attached seed cards appear in the
+  // My AXA wallet list (which reads /v1/payment_methods directly) but are
+  // NOT redisplayed inside the Payment Element on checkout — Checkout
+  // Sessions only redisplay cards that were saved *through* a Checkout
+  // surface with customer consent (save checkbox / setup-mode session).
+  // To seed a checkout-redisplayable card, complete one checkout with the
+  // save box ticked, or add a card via the wallet's add-card flow.
   for (const pm of refreshed.data) {
     if (pm.allow_redisplay !== 'always') {
       await stripe.paymentMethods.update(pm.id, { allow_redisplay: 'always' });
